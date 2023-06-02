@@ -12,6 +12,6 @@ setuptools.setup(
     keywords="HLS High Level Synthesis FPGA HDL Verilog VHDL EDA",
     license='MIT',
     entry_points={'console_scripts':['polyphony=polyphony.compiler.__main__:main'],},
-    url='https://github.com/ktok07b6/polyphony',
+    # url='https://github.com/ktok07b6/polyphony',
 )
 # scripts=['bin/polyphony'],
