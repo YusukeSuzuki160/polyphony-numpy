@@ -386,5 +386,13 @@ class uint126: pass
 class uint127: pass
 class uint128: pass
 
+class float16: pass
+class float32: pass
+class float64: pass
+
+class complex32: pass
+class complex64: pass
+class complex128: pass
+
 class List: pass
 class Tuple: pass

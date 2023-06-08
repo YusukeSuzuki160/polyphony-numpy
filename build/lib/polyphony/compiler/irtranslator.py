@@ -288,6 +288,7 @@ class ScopeVisitor(ast.NodeVisitor):
         def _make_param_symbol(arg, is_vararg=False):
             if arg.annotation:
                 ann = self.annotation_visitor.visit(arg.annotation)
+                # print(f'ann={ann}')
                 is_lib = self.current_scope.is_lib()
                 param_t = Type.from_annotation(ann, self.current_scope, is_lib)
                 if not param_t:
@@ -1628,6 +1629,7 @@ def _get_tail_lineno(node):
     return maxlineno[0]
 
 
+
 class IRTranslator(object):
     def __init__(self):
         pass
@@ -1649,6 +1651,7 @@ class IRTranslator(object):
 
     def translate(self, source, lib_name, top=None):
         tree = ast.parse(source)
+        # print(ast.dump(tree))
         if lib_name:
             if lib_name == '__builtin__':
                 top_scope = Scope.create_namespace(None, lib_name, {'lib'})
@@ -1675,3 +1678,5 @@ class IRTranslator(object):
         CodeVisitor(top_scope, type_comments).visit(tree)
         sys.path = orig_syspath
         #print(scope_tree_str(top_scope, top_scope.name, 'namespace', ''))
+        
+

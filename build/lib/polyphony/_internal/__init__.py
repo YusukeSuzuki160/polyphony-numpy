@@ -34,3 +34,8 @@ def unroll(seq, factor='full') -> list:
 @builtin
 def pipelined(seq, ii=-1) -> list:
     pass
+
+
+@decorator
+def numpyentry(func) -> None:
+    pass

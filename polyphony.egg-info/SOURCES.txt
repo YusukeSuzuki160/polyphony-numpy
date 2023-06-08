@@ -14,6 +14,7 @@ polyphony.egg-info/top_level.txt
 polyphony/_internal/__init__.py
 polyphony/_internal/_builtins.py
 polyphony/_internal/_io.py
+polyphony/_internal/_numpy.py
 polyphony/_internal/_timing.py
 polyphony/_internal/_typing.py
 polyphony/_internal/_verilog.py

@@ -3,6 +3,8 @@
 
 class Config(object):
     default_int_width = 32
+    default_float_width = 64
+    default_complex_width = 128
     main_clock_frequency = 100000000
     reset_activation_signal = 1
     internal_ram_threshold_size = 512  # width * length

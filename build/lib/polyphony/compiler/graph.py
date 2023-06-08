@@ -93,6 +93,7 @@ class Graph(object):
         return len(self.nodes)
 
     def add_node(self, node):
+        # print("add_node: ", node)
         node.g = self
         self.nodes.add(node)
 

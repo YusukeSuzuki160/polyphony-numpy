@@ -749,6 +749,7 @@ class MemRefGraphBuilder(IRVisitor):
             stm = worklist.popleft()
             self.scope = stm.block.scope
             self.visit(stm)
+        # print('memref graph', self.mrg)
 
         self._reconnect_alias_edge()
         # create joint node

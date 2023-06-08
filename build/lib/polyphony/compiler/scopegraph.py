@@ -102,8 +102,10 @@ class DependencyGraphBuilder(IRVisitor):
                 self.worklist.append(param_scope)
 
     def visit_TEMP(self, ir):
+        # print('visit_TEMP', ir.sym.typ)
         if ir.sym.typ.has_scope():
             receiver_scope = ir.sym.typ.get_scope()
+            # print('visit_TEMP', receiver_scope)
         elif ir.sym.scope is not self.scope:
             receiver_scope = ir.sym.ancestor.scope if ir.sym.ancestor else ir.sym.scope
         else:

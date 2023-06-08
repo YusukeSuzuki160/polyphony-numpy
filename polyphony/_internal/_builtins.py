@@ -34,6 +34,8 @@ class bool:
     
 @builtin
 @typeclass
-class ndarray:
-    def __init__(self, a = []):
+class float:
+    def __init__(self, f:float=0.0) -> float:
         pass
+    
+

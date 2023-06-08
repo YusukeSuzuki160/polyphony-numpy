@@ -425,6 +425,7 @@ class EarlyConstantOptNonSSA(ConstantOptBase):
             self._process_unconditional_cjump(ir, [])
 
     def visit_TEMP(self, ir):
+        # print(ir)
         if ir.sym.scope.is_namespace() and ir.sym.typ.is_scalar():
             c = try_get_constant(ir.qualified_symbol(), self.scope)
             if c:

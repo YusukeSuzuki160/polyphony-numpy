@@ -9,6 +9,7 @@ builtin_mappings = {
     '__builtin__._assert': 'assert',
     '__builtin__.int': 'int',
     '__builtin__.bool': 'bool',
+    '__builtin__.float': 'float',
     'polyphony.verilog.write': 'polyphony.verilog.write',
     'polyphony.verilog.display': 'polyphony.verilog.display',
     'polyphony.timing.clksleep': 'polyphony.timing.clksleep',
@@ -18,7 +19,7 @@ builtin_mappings = {
     'polyphony.timing.wait_edge': 'polyphony.timing.wait_edge',
     'polyphony.unroll': 'polyphony.unroll',
     'polyphony.pipelined': 'polyphony.pipelined',
-    '__builtin__.ndarray': 'ndarray',
+    'polyphony.numpy': 'numpy',
 }
 
 builtin_symbols = {}
