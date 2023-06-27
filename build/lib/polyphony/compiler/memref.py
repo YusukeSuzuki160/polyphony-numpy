@@ -754,7 +754,6 @@ class MemRefGraphBuilder(IRVisitor):
         # create joint node
         n2one_node_map = {}
         one2n_node_map = {}
-        print('edges', self.edges)
         for src_sym, dst_sym in reversed(self.edges):
             src = self.mrg.node(src_sym)
             dst = self.mrg.node(dst_sym)

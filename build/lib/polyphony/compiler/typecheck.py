@@ -357,7 +357,7 @@ class TypePropagation(IRVisitor):
         if ir.is_mutable:
             t = Type.list(item_t, memnode, tuple(shape))
         else:
-            t = Type.tuple(item_t, memnode, len(ir.items), tuple(shape))
+            t = Type.tuple(item_t, memnode, tuple(shape))
         self._set_type(ir.sym, t)
         return t
 
@@ -436,6 +436,7 @@ class TypePropagation(IRVisitor):
             self.scope.return_type = typ
 
     def visit_MOVE(self, ir):
+        print(ir)
         src_typ = self.visit(ir.src)
         if src_typ in (Type.undef_t, Type.generic_t):
             raise RejectPropagation(ir)
