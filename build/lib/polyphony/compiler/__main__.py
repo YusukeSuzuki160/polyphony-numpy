@@ -237,7 +237,7 @@ def typeprop(driver, scope):
 
 
 def typecheck(driver, scope):
-    print('typecheck', scope)
+    # print('typecheck', scope)
     TypeChecker().process(scope)
 
 

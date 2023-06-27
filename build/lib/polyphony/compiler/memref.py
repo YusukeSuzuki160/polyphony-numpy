@@ -749,12 +749,12 @@ class MemRefGraphBuilder(IRVisitor):
             stm = worklist.popleft()
             self.scope = stm.block.scope
             self.visit(stm)
-        # print('memref graph', self.mrg)
 
         self._reconnect_alias_edge()
         # create joint node
         n2one_node_map = {}
         one2n_node_map = {}
+        print('edges', self.edges)
         for src_sym, dst_sym in reversed(self.edges):
             src = self.mrg.node(src_sym)
             dst = self.mrg.node(dst_sym)

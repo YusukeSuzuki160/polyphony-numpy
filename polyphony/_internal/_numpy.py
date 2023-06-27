@@ -114,6 +114,5 @@ class Ndarray:
     def __init__(self, a, dtype=None):
         self.mem = a
         self.dtype = dtype
-
 def array(a, dtype=None) -> Ndarray:
     return Ndarray(a, dtype)

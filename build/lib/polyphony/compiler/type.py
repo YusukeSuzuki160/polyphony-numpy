@@ -210,30 +210,30 @@ class Type(object):
     def __str__(self):
         if self.name == "object" and self.get_scope():
             return self.get_scope().orig_name
-        # if env.dev_debug_mode:
-        if self.name == "int":
-            return "int{}".format(self.get_width())
-        if self.name == "list":
-            if self.has_shape():
-                return "list<{}><{}>".format(self.get_element(), self.get_shape())
-            else:
-                return "list<{}>".format(self.get_element())
-        if self.name == "port":
-            return "port<{}, {}>".format(self.get_dtype(), self.get_direction())
-        if self.name == "function":
-            if self.get_scope().is_method():
-                return "function<{}.{}>".format(
-                    self.get_scope().parent.orig_name, self.get_scope().orig_name
-                )
-            else:
-                return "function<{}>".format(self.get_scope().orig_name)
-        if self.name == "ndarray":
-            if self.has_shape():
-                return "ndarray<{}><{}>".format(
-                    self.get_dtype(), self.get_shape()
-                )
-            else:
-                return "ndarray<{}>".format(self.get_element())
+        if env.dev_debug_mode:
+            if self.name == "int":
+                return "int{}".format(self.get_width())
+            if self.name == "list":
+                if self.has_shape():
+                    return "list<{}><{}><is_inner={}>".format(self.get_element(), self.get_shape(), self.is_inner())
+                else:
+                    return "list<{}>".format(self.get_element())
+            if self.name == "port":
+                return "port<{}, {}>".format(self.get_dtype(), self.get_direction())
+            if self.name == "function":
+                if self.get_scope().is_method():
+                    return "function<{}.{}>".format(
+                        self.get_scope().parent.orig_name, self.get_scope().orig_name
+                    )
+                else:
+                    return "function<{}>".format(self.get_scope().orig_name)
+            if self.name == "ndarray":
+                if self.has_shape():
+                    return "ndarray<{}><{}>".format(
+                        self.get_dtype(), self.get_shape()
+                    )
+                else:
+                    return "ndarray<{}>".format(self.get_element())
 
         return self.name
 
@@ -260,6 +260,12 @@ class Type(object):
     
     def get_class(self):
         return self.attrs["class_name"]
+    
+    def set_is_inner(self):
+        self.attrs["is_inner"] = True
+    
+    def is_inner(self):
+        return self.attrs["is_inner"]
     
     @classmethod
     def int(cls, width=None, signed=True):
@@ -289,7 +295,7 @@ class Type(object):
     @classmethod
     def list(cls, elm_t, memnode, shape, numpy_mem=False):
         # assert elm_t.is_scalar() or elm_t.is_undef()
-        return Type("list", element=elm_t, memnode=memnode, shape=shape, numpy_mem=numpy_mem)
+        return Type("list", element=elm_t, memnode=memnode, shape=shape, numpy_mem=numpy_mem, is_inner=False)
 
     @classmethod
     def tuple(cls, elm_t, memnode, shape):

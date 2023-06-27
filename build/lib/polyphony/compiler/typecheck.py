@@ -342,6 +342,8 @@ class TypePropagation(IRVisitor):
                     item_t = Type.int(maxwidth, signed)
                 else:
                     item_t = item_typs[0]
+                    for it in item_typs:
+                        it.set_is_inner()
             else:
                 assert False  # TODO:
         if ir.sym.typ.is_seq():
