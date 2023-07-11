@@ -414,6 +414,9 @@ class HDLFunctionModuleBuilder(HDLModuleBuilder):
             for i in range(scope.return_type.get_length()):
                 sig_name = '{}_out_{}'.format(scope.orig_name, i)
                 sig = self.hdlmodule.signal(sig_name)
+                if sig is None:
+                    self.hdlmodule.gen_sig(sig_name, scope.return_type.get_element().get_width())
+                    sig = self.hdlmodule.signal(sig_name)
                 inf = SingleWriteInterface(sig, 'out_{}'.format(i),
                                            scope.orig_name)
                 self.hdlmodule.add_interface(inf.if_name, inf)

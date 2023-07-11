@@ -109,8 +109,7 @@ def is_uninlined_scope(scope):
 
 
 def is_hdlmodule_scope(scope):
-    return (scope.is_module() and scope.is_instantiated()) or scope.is_function_module() or scope.is_testbench() or (scope.is_numpy() and not scope.is_namespace())
-
+    return (scope.is_module() and scope.is_instantiated()) or scope.is_function_module() or scope.is_testbench() or (scope.is_numpy() and not scope.is_namespace()) or (scope.is_math() and not scope.is_namespace())
 
 def preprocess_global(driver):
     scopes = Scope.get_scopes(with_global=True, with_class=True)

@@ -8,6 +8,7 @@ from .env import env
 from .ir import *
 from .memref import *
 from logging import getLogger
+import inspect
 logger = getLogger(__name__)
 
 
@@ -407,6 +408,7 @@ class AHDLTranslator(object):
         self.hdlmodule = env.hdlmodule(scope)
         self.mrg = env.memref_graph
         self.sym2sig_map = {}
+        self.return_num  = 0;
 
     def reset(self, sched_time):
         self.sched_time = sched_time
@@ -666,7 +668,7 @@ class AHDLTranslator(object):
         return width
 
     def _sym_2_sig(self, sym):
-        if sym in self.sym2sig_map:
+        if sym in self.sym2sig_map and not sym.is_return():
             return self.sym2sig_map[sym]
         tags = set()
         if sym.typ.is_seq():
@@ -713,10 +715,10 @@ class AHDLTranslator(object):
         elif 'input' in tags:
             sig_name = '{}_{}'.format(self.scope.orig_name, sym.hdl_name())
         elif 'output' in tags:
-            sig_name = '{}_out_0'.format(self.scope.orig_name)
+            sig_name = '{}_out_{}'.format(self.scope.orig_name, self.return_num)
+            self.return_num += 1
         else:
             sig_name = sym.hdl_name()
-
         width = self._signal_width(sym)
         sig = self.hdlmodule.gen_sig(sig_name, width, tags, sym)
         self.sym2sig_map[sym] = sig

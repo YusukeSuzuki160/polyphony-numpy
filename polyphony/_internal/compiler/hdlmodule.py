@@ -4,6 +4,7 @@ from .hdlinterface import *
 from . import libs
 from .env import env
 from .ahdl import *
+import inspect
 
 logger = getLogger(__name__)
 

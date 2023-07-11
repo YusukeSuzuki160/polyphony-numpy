@@ -104,6 +104,8 @@ class CopyCollector(IRVisitor):
         self.copies = copies
 
     def visit_MOVE(self, ir):
+        if ir.dst.is_a(ARRAY):
+            return
         if ir.dst.symbol().is_return():
             return
         if ir.src.is_a(TEMP):

@@ -35,6 +35,8 @@ BUILTIN_PACKAGES = (
     'polyphony.io',
     'polyphony.timing',
     'polyphony.verilog',
+    'polyphony.numpy',
+    'polyphony.math',
 )
 
 ignore_packages = []
@@ -70,6 +72,8 @@ class ImportVisitor(ast.NodeVisitor):
         if path.startswith(env.root_dir):
             if os.path.basename(path) == '_numpy.py':
                 tags.add('numpy')
+            elif os.path.basename(path) == '_math.py':
+                tags.add('math')
             else:
                 tags.add('lib')
         if os.path.basename(path) == '__init__.py':
@@ -345,7 +349,9 @@ class ScopeVisitor(ast.NodeVisitor):
             tags.add('inlinelib')
         if outer_scope.name == 'numpy':
             tags.add('numpy')
-        if outer_scope.is_lib() and 'inlinelib' not in tags and 'numpy' not in tags:
+        if outer_scope.name == 'math':
+            tags.add('math')
+        if outer_scope.is_lib() and 'inlinelib' not in tags and 'numpy' not in tags and 'math' not in tags:
             tags.add('lib')
 
         self.current_scope = Scope.create(outer_scope, node.name, tags, node.lineno)
@@ -415,12 +421,14 @@ class ScopeVisitor(ast.NodeVisitor):
         if outer_scope.name == 'polyphony.typing':
             tags |= {'typeclass', 'lib'}
         if outer_scope.name == 'polyphony.numpy':
-            tags.add('numpy')
+            tags.add('')
+        if outer_scope.name == 'polyphony.math':
+            tags.add('math')
         if outer_scope.is_builtin():
             tags.add('builtin')
         if outer_scope.is_inlinelib():
             tags.add('inlinelib')
-        if outer_scope.is_lib() and 'inlinelib' not in tags and 'numpy' not in tags:
+        if outer_scope.is_lib() and 'inlinelib' not in tags and 'numpy' not in tags and 'math' not in tags:
             tags.add('lib')
         self.current_scope = Scope.create(outer_scope,
                                           node.name,

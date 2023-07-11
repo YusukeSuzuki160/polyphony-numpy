@@ -32,7 +32,7 @@ class Scope(Tagged):
         'function_module',
         'inlinelib',
         'package', 'directory',
-        'numpy',
+        'numpy', 'math',
     }
     scope_id = 0
 

@@ -342,7 +342,7 @@ class HDLRegArrayPortMaker(object):
     def _make_source_node_connection(self):
         sig = self.hdlmodule.gen_sig(self.name, self.width)
         self.hdlmodule.add_internal_reg_array(sig, self.length)
-        return
+        # return
         # direct connect
         if isinstance(self.memnode.succs[0], MemRefNode):
             assert len(self.memnode.succs) == 1
