@@ -12,7 +12,7 @@ class DefaultSynthParamSetter(object):
     }
     scope_params = {
         'scheduling':'parallel',
-        'cycle':'minimum',
+        'cycle':'any',
         'ii':-1,
     }
 

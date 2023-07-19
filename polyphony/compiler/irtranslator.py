@@ -35,6 +35,7 @@ BUILTIN_PACKAGES = (
     'polyphony.io',
     'polyphony.timing',
     'polyphony.verilog',
+    'polyphony.numpy',
 )
 
 ignore_packages = []
