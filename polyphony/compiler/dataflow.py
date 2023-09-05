@@ -941,6 +941,8 @@ class RegArrayParallelizer(object):
             return False
         v1_rhs_const = self._get_const(v1_stm.src)
         v2_rhs_const = self._get_const(v2_stm.src)
+        if v1_rhs_const is None or v2_rhs_const is None:
+            return False
         return v1_stm.src.op == v2_stm.src.op and v1_rhs_const.value != v2_rhs_const.value
 
     def is_inequality_value(self, offs1, offs2):

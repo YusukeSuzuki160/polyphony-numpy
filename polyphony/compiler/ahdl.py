@@ -2,6 +2,7 @@
 from .ir import Ctx
 from .memref import MemRefNode, MemParamNode
 from .utils import is_a
+import inspect
 
 PYTHON_OP_2_HDL_OP_MAP = {
     'And': '&&', 'Or': '||',
@@ -406,8 +407,8 @@ class AHDL_IF(AHDL_STM):
 
     def __str__(self):
         s = 'if {}\n'.format(self.conds[0])
-        for code in self.blocks[0].codes:
-            s += '    {}\n'.format(code)
+        for block in self.blocks:
+            s += '  {}\n'.format(block)
         for cond, ahdlblk in zip(self.conds[1:], self.blocks[1:]):
             if cond:
                 s += '  elif {}\n'.format(cond)
@@ -590,7 +591,7 @@ class AHDL_META_MULTI_WAIT(AHDL_STM):
             clears.append(AHDL_MOVE(self.latch_var(i), AHDL_CONST(0)))
         cond = AHDL_OP('And', *conds)
         codes = clears + [self.transition]
-        self.transition = AHDL_TRANSITION_IF([cond], [codes])
+        self.transition = AHDL_TRANSITION_IF([cond], codes)
 
 
 class AHDL_FUNCTION(AHDL_VAR_DECL):
@@ -672,14 +673,29 @@ class AHDL_TRANSITION(AHDL_STM):
         self.target = target
 
     def __str__(self):
-        return '(next state: {})'.format(self.target.name)
+        if self.target is None:
+            return '(next state: None)'
+        else:
+            return '(next state: {})'.format(self.target.name)
 
     def __repr__(self):
-        return 'AHDL_TRANSITION({})'.format(self.target.name)
+        if self.target is None:
+            return 'AHDL_TRANSITION(None)'
+        else:
+            return 'AHDL_TRANSITION({})'.format(self.target.name)
 
 
 class AHDL_TRANSITION_IF(AHDL_IF):
     def __init__(self, conds, blocks):
+        # print("AHDL_TRANSITION_IF", conds, blocks)
+        if isinstance(blocks, list):
+            codes = blocks
+            blocks = []
+            for code in codes:
+                if isinstance(code, AHDL_BLOCK):
+                    blocks.append(code)
+                else:
+                    blocks.append(AHDL_BLOCK('', [code]))
         super().__init__(conds, blocks)
 
     def __repr__(self):
@@ -696,6 +712,7 @@ class AHDL_PIPELINE_GUARD(AHDL_IF):
 
 class AHDL_BLOCK(AHDL):
     def __init__(self, name, codes):
+        # print('AHDL_BLOCK', name, codes)
         self.name = name
         self.codes = codes
 

@@ -216,6 +216,9 @@ class Scope(Tagged):
             return False
         elif self.order == other.order:
             return self.lineno < other.lineno
+        
+    def is_function_module(self):
+        return "function_module" in self.tags or (self.parent is not None and self.parent.orig_name == "numpy_to_polyphony.polyphony_lib.complex")
 
     def clone_symbols(self, scope, postfix=''):
         symbol_map = {}

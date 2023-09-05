@@ -44,7 +44,7 @@ class InlineOpt(object):
     def _process_func(self, callee, caller, calls):
         if callee.is_testbench():
             return
-        if caller.is_testbench() and callee.is_function_module():
+        if callee.is_function_module():
             return
         for call, call_stm in calls:
             self.inline_counts[caller] += 1
