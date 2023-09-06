@@ -155,7 +155,7 @@ class VerilogCodeGen(AHDLVisitor):
 
     def _generate_io_port(self):
         ports = []
-        if self.hdlmodule.scope.is_module() or self.hdlmodule.scope.is_function_module():
+        if self.hdlmodule.scope.is_module() or self.hdlmodule.scope.is_function_module() or self.hdlmodule.scope.is_verilog():
             ports.append('input wire clk')
             ports.append('input wire rst')
         for interface in self.hdlmodule.interfaces.values():

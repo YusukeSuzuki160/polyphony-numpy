@@ -109,7 +109,7 @@ def is_uninlined_scope(scope):
 
 
 def is_hdlmodule_scope(scope):
-    return (scope.is_module() and scope.is_instantiated()) or scope.is_function_module() or scope.is_testbench()
+    return (scope.is_module() and scope.is_instantiated()) or scope.is_function_module() or scope.is_testbench() or scope.is_verilog()
 
 
 def preprocess_global(driver):

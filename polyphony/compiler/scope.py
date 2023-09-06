@@ -14,6 +14,7 @@ from .irvisitor import IRVisitor
 from .ir import CONST, JUMP, CJUMP, MCJUMP, PHIBase
 from .signal import Signal
 from logging import getLogger
+import re
 logger = getLogger(__name__)
 
 
@@ -138,6 +139,9 @@ class Scope(Tagged):
     @classmethod
     def is_unremovable(cls, s):
         return s.is_instantiated() or (s.parent and s.parent.is_instantiated())
+    
+    def is_verilog(self):
+        return (self.parent is not None and re.match(r"complex*", self.parent.name))
 
     def __init__(self, parent, name, tags, lineno, scope_id):
         super().__init__(tags)
@@ -217,8 +221,6 @@ class Scope(Tagged):
         elif self.order == other.order:
             return self.lineno < other.lineno
         
-    def is_function_module(self):
-        return "function_module" in self.tags or (self.parent is not None and self.parent.orig_name == "numpy_to_polyphony.polyphony_lib.complex")
 
     def clone_symbols(self, scope, postfix=''):
         symbol_map = {}

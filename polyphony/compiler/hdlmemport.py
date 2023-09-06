@@ -462,6 +462,7 @@ class HDLRegArrayPortMaker(object):
                     src_sig = self.hdlmodule.gen_sig(pred.name(), pred.data_width())
                     src_mem = AHDL_MEMVAR(src_sig, pred, Ctx.LOAD)
                     for i in range(self.length):
+                        # print('\ninst', inst, succ.name(), i)
                         sig_name = '{}_{}{}'.format(inst, succ.name(), i)
                         ref_sig = self.hdlmodule.gen_sig(sig_name, succ.data_width())
                         ref_var = AHDL_VAR(ref_sig, Ctx.LOAD)

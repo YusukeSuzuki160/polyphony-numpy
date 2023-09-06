@@ -46,6 +46,8 @@ class InlineOpt(object):
             return
         if callee.is_function_module():
             return
+        if callee.is_verilog():
+            return
         for call, call_stm in calls:
             self.inline_counts[caller] += 1
             assert callee is call.func_scope()

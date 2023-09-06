@@ -4,6 +4,7 @@ from .hdlinterface import *
 from . import libs
 from .env import env
 from .ahdl import *
+import inspect
 
 logger = getLogger(__name__)
 
@@ -168,6 +169,7 @@ class HDLModule(object):
         return results
 
     def add_static_assignment(self, assign, tag=''):
+        # print('\nadd_static_assignment', tag, assign, inspect.stack()[1])
         assert isinstance(assign, AHDL_ASSIGN)
         self.add_decl(tag, assign)
 
@@ -178,6 +180,7 @@ class HDLModule(object):
         return assigns
 
     def add_decl(self, tag, decl):
+        # print('\nadd_decl:\nscope = ', self.name, "\ntag = ", tag, "\ndecl = ", decl, "\ncaller = ", inspect.stack()[1])
         assert isinstance(decl, AHDL_DECL)
         if isinstance(decl, AHDL_VAR_DECL):
             if decl.name in (d.name for d in self.decls[tag] if type(d) == type(decl)):

@@ -8,6 +8,7 @@ from .hdlmemport import HDLMemPortMaker, HDLTuplePortMaker, HDLRegArrayPortMaker
 from .hdlinterface import *
 from .memref import *
 from logging import getLogger
+import inspect
 logger = getLogger(__name__)
 
 
@@ -18,7 +19,7 @@ class HDLModuleBuilder(object):
             return HDLTopModuleBuilder()
         elif hdlmodule.scope.is_testbench():
             return HDLTestbenchBuilder()
-        elif hdlmodule.scope.is_function_module():
+        elif hdlmodule.scope.is_function_module() or hdlmodule.scope.is_verilog():
             return HDLFunctionModuleBuilder()
         else:
             assert False
@@ -310,7 +311,7 @@ class HDLModuleBuilder(object):
         def is_acc_connected(sub, acc, hdlmodule):
             if sub_module.name == 'ram' or sub_module.name == 'fifo':
                 return True
-            elif sub_module.scope.is_function_module():
+            elif sub_module.scope.is_function_module() or sub_module.scope.is_verilog():
                 return True
             elif acc.acc_name in hdlmodule.accessors:
                 return True

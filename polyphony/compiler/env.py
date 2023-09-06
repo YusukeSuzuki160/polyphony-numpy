@@ -1,4 +1,5 @@
-﻿import logging
+﻿import inspect
+import logging
 
 
 class Config(object):
@@ -13,7 +14,7 @@ class Config(object):
     def __str__(self):
         d = {}
         for k in Config.__dict__:
-            if k.startswith('__'):
+            if k.startswith("__"):
                 continue
             d[k] = Config.__dict__[k]
         d.update(self.__dict__)
@@ -33,12 +34,12 @@ class Env(object):
 
     dev_debug_mode = False
     hdl_debug_mode = False
-    debug_output_dir = '.tmp'
-    ctor_name = '__init__'
-    self_name = 'self'
-    callop_name = '__call__'
+    debug_output_dir = ".tmp"
+    ctor_name = "__init__"
+    self_name = "self"
+    callop_name = "__call__"
     enable_ahdl_opt = True
-    global_scope_name = '@top'
+    global_scope_name = "@top"
     enable_hyperblock = True
     verbose_level = 0
     quiet_level = 0
@@ -75,7 +76,9 @@ class Env(object):
         self.scopes[scope.name] = scope
         self.all_scopes[scope.name] = scope
         if self.dev_debug_mode and (not scope.is_lib() and not scope.is_inlinelib()):
-            logfile = logging.FileHandler('{}/debug_log.{}'.format(env.debug_output_dir, scope.name.replace('@', '')) , 'w')
+            logfile = logging.FileHandler(
+                "{}/debug_log.{}".format(env.debug_output_dir, scope.name.replace("@", "")), "w"
+            )
             self.logfiles[scope] = logfile
 
     def destroy(self):
