@@ -124,6 +124,7 @@ class HDLModule(object):
         self.add_decl(tag, AHDL_SIGNAL_DECL(sig))
 
     def add_internal_reg_array(self, sig, size, tag=''):
+        # print('\nadd_internal_reg_array', sig, size, tag, inspect.stack()[1][1:4])
         assert not sig.is_net()
         sig.add_tag('regarray')
         self.add_decl(tag, AHDL_SIGNAL_ARRAY_DECL(sig, size))
@@ -180,7 +181,7 @@ class HDLModule(object):
         return assigns
 
     def add_decl(self, tag, decl):
-        # print('\nadd_decl:\nscope = ', self.name, "\ntag = ", tag, "\ndecl = ", decl, "\ncaller = ", inspect.stack()[1])
+        # print('\nadd_decl:\nscope = ', self.name, "\ntag = ", tag, "\ndecl = ", decl, "\ncaller = ", inspect.stack()[1][1:4])
         assert isinstance(decl, AHDL_DECL)
         if isinstance(decl, AHDL_VAR_DECL):
             if decl.name in (d.name for d in self.decls[tag] if type(d) == type(decl)):
@@ -200,6 +201,13 @@ class HDLModule(object):
 
     def add_sub_module(self, name, hdlmodule, connections, param_map=None):
         assert isinstance(name, str)
+        # print("\nadd_sub_module:\nname = ", name)
+        # print("\nhdlmodule = ", hdlmodule.name)
+        # for connection in connections.values():
+        #     for inf, acc in connection:
+        #         print("\ninf = ", inf)
+        #         print("\nacc = ", acc)
+        # print("\nparam_map = ", param_map)
         self.sub_modules[name] = (name, hdlmodule, connections, param_map)
 
     def add_function(self, func, tag=''):

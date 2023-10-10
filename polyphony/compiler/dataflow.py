@@ -4,6 +4,7 @@ from .irhelper import is_port_method_call, has_exclusive_function
 from .env import env
 from . import utils
 from logging import getLogger
+import inspect
 logger = getLogger(__name__)
 
 
@@ -649,13 +650,15 @@ class DFGBuilder(object):
 
     def _add_edges_between_func_modules(self, blocks, dfg):
         """this function is used for testbench only"""
+        # print('add edges between func modules')
+        # print("Caller", inspect.stack()[1][1:4])
         all_stms_in_section = self._all_stms(blocks)
         prev_node = None
         for stm in all_stms_in_section:
             node = None
-            if stm.is_a(MOVE) and stm.src.is_a(CALL) and stm.src.func_scope().is_function_module():
+            if stm.is_a(MOVE) and stm.src.is_a(CALL) and (stm.src.func_scope().is_function_module() or stm.src.func_scope().is_verilog()):
                 node = dfg.add_stm_node(stm)
-            elif stm.is_a(EXPR) and stm.exp.is_a(CALL) and stm.exp.func_scope().is_function_module():
+            elif stm.is_a(EXPR) and stm.exp.is_a(CALL) and (stm.exp.func_scope().is_function_module() or stm.exp.func_scope().is_verilog()):
                 node = dfg.add_stm_node(stm)
             if node:
                 if prev_node:

@@ -1,6 +1,7 @@
 ﻿from collections import namedtuple
 from .ahdl import *
 from .env import env
+import inspect
 
 
 Port = namedtuple('Port', ('name', 'width', 'dir', 'signed', 'default'))
@@ -89,6 +90,7 @@ class Interface(object):
 
     def _prefixed_port_name(self, prefix, port):
         pfx = prefix + '_' if prefix else ''
+        # print("pfx: ", pfx)
         if self.if_name:
             if port.name:
                 return pfx + '{}_{}'.format(self.if_name, port.name)

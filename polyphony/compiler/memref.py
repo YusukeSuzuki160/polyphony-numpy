@@ -6,6 +6,7 @@ from .env import env
 from .scope import Scope
 from .utils import replace_item
 from logging import getLogger
+import inspect
 logger = getLogger(__name__)
 
 
@@ -63,6 +64,11 @@ class RefNode(object):
             self.preds.append(pred)
 
     def add_succ(self, succ):
+        # print("\nadd_succ: ", succ)
+        # print("self: ", self.sym.name)
+        # print("self.succs: ", self.succs)
+        # print("scope: ", self.scope.name)
+        # print("Caller: ", inspect.stack()[1][1:4])
         if not self.succs:
             self.succs.append(succ)
 
@@ -135,7 +141,11 @@ class RefNode(object):
         sources = [source for source in self.sources()]
         if len(sources) > 1:
             return None
-        return sources[0]
+        mem_scope = self.scope
+        for source in sources:
+            if source.scope is mem_scope:
+                return source
+        return self
 
     def update(self):
         pass
@@ -336,6 +346,8 @@ class MemRefNode(RefNode, MemTrait):
         RefNode.__init__(self, sym, scope)
         MemTrait.__init__(self)
         self.initstm = None
+        # print("\nMemRefNode: ", sym, scope.name)
+        # print("Caller: ", inspect.stack()[1][1:4])
 
     def __hash__(self):
         return super().__hash__()
@@ -552,6 +564,12 @@ class MemRefGraph(object):
         self.edges[(src.sym, dst.sym)] = (src, dst)
 
     def add_param_node_instance(self, param_node, inst_name):
+        # print('add_param_node_instance')
+        # print("Param node", param_node.scope)
+        # print("Instance name", inst_name)
+        # print("Caller", inspect.stack()[1][3])
+        if param_node.scope.parent is not None and param_node.scope.is_verilog():
+            inst_name = param_node.scope.parent.name + '_' + inst_name
         self.param_node_instances[param_node].add(inst_name)
 
     def remove_node(self, node):
@@ -744,11 +762,13 @@ class MemRefGraphBuilder(IRVisitor):
                 if (sym.scope.is_namespace() or sym.scope.is_class()) and sym.typ.is_seq():
                     uses = usedef.get_stms_using(sym)
                     worklist.extend(list(uses))
+        
 
         while worklist:
             stm = worklist.popleft()
             self.scope = stm.block.scope
             self.visit(stm)
+
 
         self._reconnect_alias_edge()
         # create joint node
@@ -767,6 +787,8 @@ class MemRefGraphBuilder(IRVisitor):
 
         # connect nodes
         for src, one2n in one2n_node_map.items():
+            # print("\nsrc: ", src)
+            # print("one2n: ", one2n)
             if len(one2n.succs) == 1:
                 # this src is unidirectional
                 dst = one2n.succs.pop()

@@ -6,8 +6,8 @@ class DefaultSynthParamSetter(object):
         pass
 
     testbench_params = {
-        'scheduling':'sequential',
-        'cycle':'any',
+        'scheduling':'parallel',
+        'cycle':'minimum',
         'ii':1,
     }
     scope_params = {

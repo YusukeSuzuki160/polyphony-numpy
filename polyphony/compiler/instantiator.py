@@ -175,7 +175,7 @@ class WorkerInstantiator(object):
                                   with_class=False,
                                   with_lib=False)
         for s in scopes:
-            if s.is_global() or s.is_function_module():
+            if s.is_global() or s.is_function_module() or s.is_verilog():
                 calls |= collector.process(s)
         for stm, call in calls:
             if call.is_a(NEW) and call.func_scope().is_module() and not call.func_scope().find_ctor().is_pure():
@@ -270,7 +270,7 @@ class ModuleInstantiator(object):
                                   with_class=False,
                                   with_lib=False)
         for s in scopes:
-            if s.is_global() or s.is_function_module():
+            if s.is_global() or s.is_function_module() or s.is_verilog():
                 calls |= collector.process(s)
         for stm, call in calls:
             if call.is_a(NEW) and call.func_scope().is_module() and not call.func_scope().is_instantiated():

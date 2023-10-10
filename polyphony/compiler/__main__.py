@@ -528,7 +528,7 @@ def dumpscope(driver, scope):
 
 def dumpcfgimg(driver, scope):
     from .scope import write_dot
-    if scope.is_function() or scope.is_function_module() or scope.is_method() or scope.is_module():
+    if scope.is_function() or scope.is_function_module() or scope.is_method() or scope.is_module() or scope.is_verilog():
         write_dot(scope, f'{driver.stage - 1}_{driver.procs[driver.stage - 1].__name__}')
 
 
@@ -572,7 +572,7 @@ def dumphdl(driver, scope):
 
 def printresouces(driver, scope):
     hdlmodule = env.hdlmodule(scope)
-    if (scope.is_function_module() or scope.is_module()):
+    if (scope.is_function_module() or scope.is_module() or scope.is_verilog()):
         resources = hdlmodule.resources()
         print(resources)
 
@@ -796,7 +796,7 @@ def output_individual(compile_results, output_name, output_dir):
 
     scopes = Scope.get_scopes(with_class=True)
     scopes = [scope for scope in scopes
-              if (scope.is_testbench() or (scope.is_module() and scope.is_instantiated()) or scope.is_function_module())]
+              if (scope.is_testbench() or (scope.is_module() and scope.is_instantiated()) or scope.is_function_module() or scope.is_verilog())]
     if output_name.endswith('.v'):
         output_name = output_name[:-2]
     with open(d + output_name + '.v', 'w') as f:

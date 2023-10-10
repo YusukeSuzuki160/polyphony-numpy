@@ -6,6 +6,8 @@ from .ahdl import *
 from .hdlinterface import *
 from .memref import *
 from logging import getLogger
+import inspect
+import string
 logger = getLogger(__name__)
 
 
@@ -312,6 +314,7 @@ class HDLTuplePortMaker(object):
 
 class HDLRegArrayPortMaker(object):
     def __init__(self, memnode, scope, hdlmodule):
+        # print("\nHDLRegArrayPortMaker.__init__ called\n", inspect.stack()[1])
         self.memnode = memnode
         self.name = memnode.name()
         self.scope = scope
@@ -361,6 +364,8 @@ class HDLRegArrayPortMaker(object):
 
     def _make_param_node_connection(self):
         for sink in self.memnode.sinks():
+            if sink.scope is not self.scope:
+                continue
             ref_sig = self.hdlmodule.gen_sig(sink.name(), sink.data_width())
             self.hdlmodule.add_internal_reg_array(ref_sig, self.memnode.length)
             ref_mem = AHDL_MEMVAR(ref_sig, sink, Ctx.LOAD)
@@ -459,12 +464,21 @@ class HDLRegArrayPortMaker(object):
                     self.hdlmodule.add_internal_reg(ref_len_sig)
             elif isinstance(succ, MemParamNode):
                 for inst in self.mrg.param_node_instances[succ]:
-                    src_sig = self.hdlmodule.gen_sig(pred.name(), pred.data_width())
-                    src_mem = AHDL_MEMVAR(src_sig, pred, Ctx.LOAD)
-                    for i in range(self.length):
-                        # print('\ninst', inst, succ.name(), i)
-                        sig_name = '{}_{}{}'.format(inst, succ.name(), i)
-                        ref_sig = self.hdlmodule.gen_sig(sig_name, succ.data_width())
-                        ref_var = AHDL_VAR(ref_sig, Ctx.LOAD)
-                        ahdl_assign = AHDL_ASSIGN(ref_var, AHDL_SUBSCRIPT(src_mem, AHDL_CONST(i)))
-                        self.hdlmodule.add_static_assignment(ahdl_assign)
+                    if pred.name().startswith('in_'):
+                        for i in range(self.length):
+                            pred_name = '{}_{}{}'.format(self.hdlmodule.name, pred.name(), i)
+                            src_sig = self.hdlmodule.gen_sig(pred_name, pred.data_width())
+                            sig_name = '{}_{}{}'.format(inst, succ.name(), i)
+                            ref_sig = self.hdlmodule.gen_sig(sig_name, succ.data_width())
+                            ref_var = AHDL_VAR(ref_sig, Ctx.LOAD)
+                            ahdl_assign = AHDL_ASSIGN(ref_var, AHDL_VAR(src_sig, Ctx.LOAD))
+                            self.hdlmodule.add_static_assignment(ahdl_assign)
+                    else:
+                        src_sig = self.hdlmodule.gen_sig(pred.name(), pred.data_width())
+                        src_mem = AHDL_MEMVAR(src_sig, pred, Ctx.LOAD)
+                        for i in range(self.length):
+                            sig_name = '{}_{}{}'.format(inst, succ.name(), i)
+                            ref_sig = self.hdlmodule.gen_sig(sig_name, succ.data_width())
+                            ref_var = AHDL_VAR(ref_sig, Ctx.LOAD)
+                            ahdl_assign = AHDL_ASSIGN(ref_var, AHDL_SUBSCRIPT(src_mem, AHDL_CONST(i)))
+                            self.hdlmodule.add_static_assignment(ahdl_assign)

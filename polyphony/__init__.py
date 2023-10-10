@@ -48,7 +48,7 @@ def testbench(func):
         test(m)
     '''
     def _testbench_decorator(module_instance=None):
-        if module_instance:
+        if module_instance is not None:
             if module_instance.__class__.__name__ not in module.module_instances:
                 print(inspect.getsourcelines(func)[0][1])
                 raise RuntimeError(

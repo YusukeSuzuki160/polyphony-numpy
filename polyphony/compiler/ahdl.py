@@ -89,6 +89,8 @@ class AHDL_VAR(AHDL_EXP):
         super().__init__()
         self.sig = sig
         self.ctx = ctx
+        # print("\nAHDL_VAR", sig, ctx)
+        # print("Caller:", inspect.stack()[1][3])
 
     def __str__(self):
         return '{}'.format(self.sig)
@@ -220,6 +222,8 @@ class AHDL_MOVE(AHDL_STM):
         super().__init__()
         self.dst = dst
         self.src = src
+        # print('\nAHDL_MOVE', "dst:", dst, "src:", src)
+        # print("Caller:", inspect.stack()[1][1:4])
 
     def __str__(self):
         return '{} <= {}'.format(self.dst, self.src)
@@ -277,6 +281,8 @@ class AHDL_ASSIGN(AHDL_VAR_DECL):
             assert False
         self.dst = dst
         self.src = src
+        # print('\nAHDL_ASSIGN', "dst:", dst, "src:", src)
+        # print("Caller:", inspect.stack()[1][1:4])
 
     def __str__(self):
         return '{} := {}'.format(self.dst, self.src)

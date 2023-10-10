@@ -141,7 +141,10 @@ class Scope(Tagged):
         return s.is_instantiated() or (s.parent and s.parent.is_instantiated())
     
     def is_verilog(self):
-        return (self.parent is not None and re.match(r"complex*", self.parent.name))
+        return self.parent is not None and (re.match(r"complex*", self.parent.name) or re.match(r"list*", self.parent.name))
+    
+    def is_main(self):
+        return self.name == "@top.main"
 
     def __init__(self, parent, name, tags, lineno, scope_id):
         super().__init__(tags)
@@ -298,7 +301,7 @@ class Scope(Tagged):
                 else:
                     s.branch_graph.add_edge(new_n1, new_n0)
 
-        if self.is_function_module():
+        if self.is_function_module() or self.is_verilog():
             new_callee_instances = defaultdict(set)
             for func_sym, inst_names in self.callee_instances.items():
                 new_func_sym = symbol_map[func_sym]
