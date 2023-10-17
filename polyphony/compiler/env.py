@@ -1,12 +1,13 @@
 ﻿import inspect
 import logging
+import sys
 
 
 class Config(object):
     default_int_width = 64
     main_clock_frequency = 100000000
     reset_activation_signal = 1
-    internal_ram_threshold_size = default_int_width * 36  # width * length
+    internal_ram_threshold_size = sys.maxsize
     internal_ram_load_latency = 3
     internal_ram_store_latency = 1
     enable_pure = True

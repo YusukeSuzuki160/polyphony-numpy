@@ -138,14 +138,26 @@ class RefNode(object):
             yield from succ.sinks()
 
     def single_source(self):
+        # sources = [source for source in self.sources()]
+        # if len(sources) > 1:
+        #     return None
+        # return sources[0]
+        return self.single_source_in_scope()
+    
+    def single_source_in_scope(self):
         sources = [source for source in self.sources()]
-        if len(sources) > 1:
-            return None
         mem_scope = self.scope
-        for source in sources:
-            if source.scope is mem_scope:
-                return source
-        return self
+        index = 0
+        source_length = len(sources)
+        for i in range(source_length):
+            if sources[i].scope is mem_scope:
+                index = i
+                break
+            elif i == source_length - 1:
+                return self
+        if source_length - index > 1:
+            return None
+        return sources[index]
 
     def update(self):
         pass

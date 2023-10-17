@@ -8,6 +8,7 @@ from .env import env
 from .ir import *
 from .memref import *
 from logging import getLogger
+import inspect
 logger = getLogger(__name__)
 
 
@@ -666,6 +667,8 @@ class AHDLTranslator(object):
         return width
 
     def _sym_2_sig(self, sym):
+        if sym.hdl_name() == 'x2':
+            print("\nis_alias", sym.is_alias())
         if sym in self.sym2sig_map:
             return self.sym2sig_map[sym]
         tags = set()
@@ -723,6 +726,7 @@ class AHDLTranslator(object):
         return sig
 
     def visit_TEMP(self, ir, node):
+        sig_name = ir.sym.hdl_name()
         sig = self._sym_2_sig(ir.sym)
         if ir.sym.typ.is_seq():
             return AHDL_MEMVAR(sig, ir.sym.typ.get_memnode(), ir.ctx)

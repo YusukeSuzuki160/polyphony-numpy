@@ -580,6 +580,7 @@ class DFGBuilder(object):
         return (node.tag.block.order, node.tag.block.num, node.tag.block.stms.index(node.tag))
 
     def _add_mem_edges(self, dfg):
+        # print('\nadd mem edges')
         '''
         add the memory-to-memory edges
         if both of them are in the same block

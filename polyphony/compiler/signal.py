@@ -1,4 +1,5 @@
 from .common import Tagged
+import inspect
 
 
 class Signal(Tagged):

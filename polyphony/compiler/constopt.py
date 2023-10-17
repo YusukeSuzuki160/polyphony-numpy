@@ -364,6 +364,8 @@ class ConstantOpt(ConstantOptBase):
         if ir.offset.is_a(CONST) and not memnode.is_writable():
             source = memnode.single_source()
             if source:
+                if source.initstm is None:
+                    return ir
                 assert source.initstm
                 if not source.initstm.src.repeat.is_a(CONST):
                     fail(source.initstm, Errors.SEQ_MULTIPLIER_MUST_BE_CONST)

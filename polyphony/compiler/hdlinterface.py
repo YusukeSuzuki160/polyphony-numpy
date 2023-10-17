@@ -859,7 +859,7 @@ class RegArrayAccessor(IOAccessor):
 
     def read_sequence(self, step, step_n, dst):
         assert dst.is_a(AHDL_MEMVAR)
-        memnode = dst.memnode.single_source()
+        memnode = dst.memnode.single_source_in_scope()
         mem_scope = memnode.scope
         hdlmodule = env.hdlmodule(mem_scope)
         sig = hdlmodule.signal(memnode.name())

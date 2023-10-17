@@ -43,15 +43,18 @@ class HDLModuleBuilder(object):
             if sig.is_memif() or sig.is_ctrl() or sig.is_extport():
                 continue
             else:
-                assert ((sig.is_net() and not sig.is_reg()) or
-                        (not sig.is_net() and sig.is_reg()) or
-                        (not sig.is_net() and not sig.is_reg()))
+                # assert ((sig.is_net() and not sig.is_reg()) or
+                #         (not sig.is_net() and sig.is_reg()) or
+                #         (not sig.is_net() and not sig.is_reg()))
                 if sig.is_net():
+                    if sig.is_reg():
+                        sig.tags.remove('reg')
                     self.hdlmodule.add_internal_net(sig)
                     nets.append(sig)
                 elif sig.is_reg():
                     self.hdlmodule.add_internal_reg(sig)
                     regs.append(sig)
+                
         return regs, nets
 
     def _add_state_register(self, fsm):
