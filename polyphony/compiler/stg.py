@@ -422,7 +422,8 @@ class AHDLTranslator(object):
     def visit_BINOP(self, ir, node):
         left = self.visit(ir.left, node)
         right = self.visit(ir.right, node)
-        return AHDL_OP(ir.op, left, right)
+        instance_num = node.instance_num
+        return AHDL_OP(ir.op, left, right, instance_num=instance_num)
 
     def visit_RELOP(self, ir, node):
         left = self.visit(ir.left, node)

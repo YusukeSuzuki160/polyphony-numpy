@@ -5,14 +5,27 @@ class DefaultSynthParamSetter(object):
     def __init__(self):
         pass
 
+## resource condition example
+# 1. resource = 'free'
+#    - resource is not specified
+# 2. resource = {'Add': 1, 'Sub': 1}
+#    - resource is specified
+#   - resource is fundamental operation
+# 3. resource = {'Add': 1, 'Sub': 1, 'Mul': 1, 'listc3r3_add': 1}
+#    - resource is specified
+#   - resource contains fundamental operation and function
+
     testbench_params = {
         'scheduling':'parallel',
         'cycle':'minimum',
+        "resource": "free",
         'ii':1,
     }
     scope_params = {
         'scheduling':'parallel',
-        'cycle':'minimum',
+        'cycle':'less:50',
+        "resource": {"Add": 1},
+        # "resource": "free",
         'ii':-1,
     }
 
@@ -34,6 +47,7 @@ def make_synth_params():
     di = defaultdict(str)
     di['scheduling'] = ''
     di['cycle'] = ''
+    di['resource'] = ''
     di['ii'] = 0
     return di
 

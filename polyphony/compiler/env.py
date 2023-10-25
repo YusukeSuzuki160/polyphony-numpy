@@ -12,6 +12,7 @@ class Config(object):
     internal_ram_store_latency = 1
     enable_pure = True
 
+
     def __str__(self):
         d = {}
         for k in Config.__dict__:

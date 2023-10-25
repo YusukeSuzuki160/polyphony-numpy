@@ -116,10 +116,10 @@ class SelectorBuilder(object):
         trunk = {}
         branches = defaultdict(list)
         for p in outif.ports.all():
-            trunk[p.name] = self.hdlmodule.gen_sig(outif.port_name(p), p.width)
+            trunk[p.name] = self.hdlmodule.gen_sig(outif.port_name(p, hdl_name = self.hdlmodule.name), p.width)
         for iif in inifs:
             for p in iif.ports.all():
-                n2o_in_sig = self.hdlmodule.gen_sig(iif.port_name(p), p.width)
+                n2o_in_sig = self.hdlmodule.gen_sig(iif.port_name(p, hdl_name = self.hdlmodule.name), p.width)
                 branches[p.name].append(n2o_in_sig)
 
         # assign switch = cs

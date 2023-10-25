@@ -179,6 +179,7 @@ class Scope(Tagged):
         self.synth_params = make_synth_params()
         self.constants = {}
         self.branch_graph = Graph()
+        self.res_dict = {}
 
     def __str__(self):
         s = '\n================================\n'

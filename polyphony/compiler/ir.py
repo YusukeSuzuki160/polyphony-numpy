@@ -2,6 +2,7 @@
 from enum import IntEnum
 from .symbol import Symbol
 from .utils import is_a
+import inspect
 
 
 op2sym_map = {

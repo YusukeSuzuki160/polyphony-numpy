@@ -59,10 +59,11 @@ class AHDL_CONST(AHDL_EXP):
 
 
 class AHDL_OP(AHDL_EXP):
-    def __init__(self, op, *args):
+    def __init__(self, op, *args, instance_num=0):
         super().__init__()
         self.op = op
         self.args = args
+        self.instance_num = instance_num
 
     def __str__(self):
         if len(self.args) > 1:
@@ -119,6 +120,12 @@ class AHDL_MEMVAR(AHDL_EXP):
 
     def name(self):
         return self.sig.name
+    
+    def is_param(self):
+        return self.name().startswith('in_') or self.name().startswith('out_')
+    
+    def get_hdl_name():
+        return self.memnode.sym.hdl_name()
 
 
 class AHDL_SUBSCRIPT(AHDL_EXP):
@@ -134,6 +141,12 @@ class AHDL_SUBSCRIPT(AHDL_EXP):
 
     def __repr__(self):
         return 'AHDL_SUBSCRIPT({}, {})'.format(repr(self.memvar), repr(self.offset))
+    
+    def is_param(self):
+        return self.memvar.is_param()
+    
+    def get_hdl_name():
+        return self.memvar.get_hdl_name()
 
 
 class AHDL_SYMBOL(AHDL_EXP):
@@ -693,15 +706,18 @@ class AHDL_TRANSITION(AHDL_STM):
 
 class AHDL_TRANSITION_IF(AHDL_IF):
     def __init__(self, conds, blocks):
-        # print("AHDL_TRANSITION_IF", conds, blocks)
-        if isinstance(blocks, list):
-            codes = blocks
-            blocks = []
-            for code in codes:
-                if isinstance(code, AHDL_BLOCK):
-                    blocks.append(code)
-                else:
-                    blocks.append(AHDL_BLOCK('', [code]))
+        # if isinstance(blocks, list):
+        #     codes = blocks
+        #     blocks = []
+        #     for code in codes:
+        #         if isinstance(code, AHDL_BLOCK):
+        #             blocks.append(code)
+        #         else:
+        #             blocks.append(AHDL_BLOCK('', [code]))
+        if all([isinstance(c, AHDL_BLOCK) for c in blocks]):
+            blocks = blocks
+        else:
+            blocks = [AHDL_BLOCK('', blocks)]
         super().__init__(conds, blocks)
 
     def __repr__(self):
