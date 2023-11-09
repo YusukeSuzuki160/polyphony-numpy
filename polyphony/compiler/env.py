@@ -11,7 +11,11 @@ class Config(object):
     internal_ram_load_latency = 3
     internal_ram_store_latency = 1
     enable_pure = True
-
+    synth_params: dict[str, str | dict[str, int]] = {}
+    scheduler_params: dict[str, str | bool] = {
+        "sovler": "cbc",
+        "msg": False,
+    }
 
     def __str__(self):
         d = {}
@@ -79,7 +83,10 @@ class Env(object):
         self.all_scopes[scope.name] = scope
         if self.dev_debug_mode and (not scope.is_lib() and not scope.is_inlinelib()):
             logfile = logging.FileHandler(
-                "{}/debug_log.{}".format(env.debug_output_dir, scope.name.replace("@", "")), "w"
+                "{}/debug_log.{}".format(
+                    env.debug_output_dir, scope.name.replace("@", "")
+                ),
+                "w",
             )
             self.logfiles[scope] = logfile
 

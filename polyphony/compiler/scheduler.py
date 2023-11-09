@@ -15,7 +15,11 @@ from logging import getLogger
 from pyschedule import Scenario, alt, plotters, solvers
 from .symbol import Symbol
 import re
-
+from matplotlib import pyplot as plt
+import time
+from .type import Type
+from . import utils
+from .env import env
 logger = getLogger(__name__)
 
 MAX_FUNC_UNIT = 100
@@ -34,14 +38,13 @@ class Scheduler(object):
                 scheduler_impl = PipelineScheduler()
             else:
                 resource_cond = dfg.synth_params["resource"]
-                if scope.is_testbench():
+                if scope.is_testbench() or resource_cond == "free":
                     scheduler_impl = BlockBoundedListScheduler()
                 else:
-                    scheduler_impl = ResourceRestrictedBlockBoundedListScheduler(
-                        resource_cond
-                    )
+                    scheduler_impl = ResourceRestrictedBlockBoundedListScheduler(resource_cond)
+                    scope.resource_restrict = True
             scheduler_impl.schedule(scope, dfg)
-            scope.res_dict = scheduler_impl.res_dict
+            scope.append_res_dict(scheduler_impl.res_dict)
 
 
 class SchedulerImpl(object):
@@ -165,13 +168,9 @@ class SchedulerImpl(object):
 
             while self._is_resource_full(res, scheduled_resources):
                 logger.debug(
-                    "!!! resource {}'s slot '{}' is full !!!".format(
-                        self._str_res(res), time
-                    )
+                    "!!! resource {}'s slot '{}' is full !!!".format(self._str_res(res), time)
                 )
-                assert (
-                    False
-                ), "Rescheduling due to lack of resources is not supported yet"
+                assert False, "Rescheduling due to lack of resources is not supported yet"
                 time += 1
                 scheduled_resources = table[time]
 
@@ -196,9 +195,7 @@ class SchedulerImpl(object):
                 else:
                     if node.tag.is_a([MOVE, PHIBase]):
                         var = (
-                            node.tag.dst.symbol()
-                            if node.tag.is_a(MOVE)
-                            else node.tag.var.symbol()
+                            node.tag.dst.symbol() if node.tag.is_a(MOVE) else node.tag.var.symbol()
                         )
                         if var.is_condition():
                             self.node_latency_map[node] = (0, 0, 0)
@@ -244,17 +241,11 @@ class SchedulerImpl(object):
         return True, expected
 
     def _try_adjust_latency(self, dfg, expected):
-        for path in dfg.trace_all_paths(
-            lambda n: dfg.succs_typ_without_back(n, "DefUse")
-        ):
+        for path in dfg.trace_all_paths(lambda n: dfg.succs_typ_without_back(n, "DefUse")):
             self.all_paths.append(path)
         ret, actual = self._adjust_latency(self.all_paths, expected)
         if not ret:
-            assert (
-                False
-            ), "scheduling has failed. the cycle must be greater equal {}".format(
-                actual
-            )
+            assert False, "scheduling has failed. the cycle must be greater equal {}".format(actual)
 
     def _max_latency(self, paths):
         max_latency = 0
@@ -320,9 +311,7 @@ class BlockBoundedListScheduler(SchedulerImpl):
                 scheduled_time = self._node_sched(dfg, n)
                 latency = get_latency(n.tag)
                 # detect resource conflict
-                scheduled_time = self._get_earliest_res_free_time(
-                    n, scheduled_time, latency
-                )
+                scheduled_time = self._get_earliest_res_free_time(n, scheduled_time, latency)
                 n.begin = scheduled_time
                 n.end = n.begin + latency
                 # logger.debug('## SCHEDULED ## ' + str(n))
@@ -344,9 +333,7 @@ class BlockBoundedListScheduler(SchedulerImpl):
                 scheduled_time = self._node_sched_with_block_bound(dfg, n, block)
                 _, _, latency = self.node_latency_map[n]
                 # detect resource conflict
-                scheduled_time = self._get_earliest_res_free_time(
-                    n, scheduled_time, latency
-                )
+                scheduled_time = self._get_earliest_res_free_time(n, scheduled_time, latency)
                 n.begin = scheduled_time
                 n.end = n.begin + latency
                 # logger.debug('## SCHEDULED ## ' + str(n))
@@ -373,9 +360,7 @@ class BlockBoundedListScheduler(SchedulerImpl):
             seq_preds = [p for p in seq_preds if p.tag.block is block]
             sched_times = []
             if seq_preds:
-                if node.tag.is_a([JUMP, CJUMP, MCJUMP]) or has_exclusive_function(
-                    node.tag
-                ):
+                if node.tag.is_a([JUMP, CJUMP, MCJUMP]) or has_exclusive_function(node.tag):
                     latest_node = max(seq_preds, key=lambda p: p.end)
                     sched_time = latest_node.end
                 else:
@@ -415,17 +400,17 @@ class ResourceRestrictedBlockBoundedListScheduler(SchedulerImpl):
         self.scheduler = None
         self.schedule_result = {}
         self.res_dict = {}
+        self.phonys = []
+        self.hide_tasks = []
 
     def _schedule(self, dfg):
         self._calc_latency(dfg)
         self._remove_alias_if_needed(dfg)
-        for path in dfg.trace_all_paths(
-            lambda n: dfg.succs_typ_without_back(n, "DefUse")
-        ):
+        for path in dfg.trace_all_paths(lambda n: dfg.succs_typ_without_back(n, "DefUse")):
             self.all_paths.append(path)
         cycle = dfg.synth_params["cycle"]
         if cycle == "minimum" or cycle == "any":
-            clock_limit = self._max_latency(self.all_paths)
+            clock_limit = self._max_latency(self.all_paths) + 1
         elif cycle.startswith("less:"):
             extected_latency = int(cycle[len("less:") :])
             clock_limit = extected_latency
@@ -434,83 +419,204 @@ class ResourceRestrictedBlockBoundedListScheduler(SchedulerImpl):
         for block, node in block_nodes.items():
             max_latency = 0
             self.scheduler = Scenario(block.name, horizon=clock_limit)
-            max_res = self.res_extractor.calc_resources_in_blcok(block)
+            max_res = self.res_extractor.calc_resources_in_block(block)
+            max_res = {k if isinstance(k, str) else k.name: v for k, v in max_res.items()}
             resources = {}
             for res, num in max_res.items():
                 res_name = res if isinstance(res, str) else res.name
                 if res_name in self.resources:
                     num = self.resources[res]
+                match res_name:
+                    case "Add" | "Sub" | "Mult" | "Div" | "FloorDiv":
+                        res_name = res_name + "er"
+                    case "RShift" | "LShift": 
+                        continue
+                    case _:
+                        res_name = "func_" + res_name
                 resources[res] = self.scheduler.Resources(res_name, num=num)
-            tasks = self._add_nodes_to_scheduler(dfg, node, block, resources)
-            is_success = solvers.mip.solve(self.scheduler, msg=False)
+            if resources == {}:
+                print("\nblock: " + block.name)
+                print("node num: ", 0)
+                for n in node:
+                    _, _, latency = self.node_latency_map[n]
+                    sched_time = self._node_sched_with_block_bound(dfg, n, block)
+                    n.begin = sched_time
+                    n.end = n.begin + latency
+                # print(dfg)
+                continue
+            resources["start"] = self.scheduler.Resources("init_sym", num=1)
+            tasks, first_prio = self._add_nodes_to_scheduler(dfg, node, block, resources)
+            if "solver" in dfg.synth_params:
+                solver = dfg.synth_params["solver"]
+            else:
+                solver = env.config.scheduler_params["solver"]
+            msg = env.config.scheduler_params["msg"]
+            start = time.time()
+            if solver == "list scheduling":
+                is_success = solvers.listsched.solve(self.scheduler, msg=msg)
+            elif solver == "mip":
+                is_success = solvers.mip.solve(self.scheduler, msg=msg)
+            elif solver == "cp":
+                is_success = solvers.cpoptimizer.solve(self.scheduler, msg=msg)
+            elif solver == "ortools":
+                is_success = solvers.ortools.solve(self.scheduler, msg=msg)
+            elif solver == "cplex":
+                is_success = solvers.mip.solve(self.scheduler, msg=msg, kind="CPLEX")
+            elif solver == "glpk":
+                is_success = solvers.mip.solve(self.scheduler, msg=msg, kind="GLPK")
+            elif solver == "cbc":
+                is_success = solvers.mip.solve(self.scheduler, msg=msg, kind="CBC")
+            elif solver == "scip":
+                is_success = solvers.mip.solve(self.scheduler, msg=msg, kind="SCIP")
+            elif solver == "gurobi":
+                is_success = solvers.mip.solve(self.scheduler, msg=msg, kind="GUROBI")
+            else:
+                assert False, "unknown solver: {}".format(solver)
             if not is_success:
                 raise Exception("scheduling failed")
-            self.schedule_result[block] = self.get_result()
+            end = time.time()
+            print("scheduling time: {}[s]".format(end - start))
+            results = self.get_result()
+            self.schedule_result[block] = results
             save_file_name = "./scheduling/schedule_result_" + block.name + ".png"
-            plotters.matplotlib.plot(self.scheduler, img_filename=save_file_name)
+            # hide_tasks = [v for k, v in tasks.items() if str(v).startswith("other")] + self.hide_tasks
+            # hide_resources = self.phonys
+            hide_tasks = []
+            hide_resources = []
+            plotters.matplotlib.plot(
+                self.scheduler,
+                img_filename=save_file_name,
+                hide_tasks=hide_tasks,
+                hide_resources=hide_resources,
+            )
             tasks = {str(v): k for k, v in tasks.items()}
-            for task in self.schedule_result[block]:
-                task_name = task[0]
-                if task_name.startswith("result"):
+            # for task in self.schedule_result[block]:
+            #     task_name = task[0]
+            #     res = task[1]
+            #     begin = int(task[2])
+            #     end = int(task[3])
+            #     if max_latency < end:
+            #         max_latency = end
+            #     node = tasks[task_name]
+            #     self._apply_schedule_result(dfg, node, begin, end)
+            #     self._add_node_to_res_table(node, begin, end, res)
+            #     self._remove_alias_if_needed(dfg)
+            visited = []
+            # print(dfg)
+            up_priorities = []
+            using_resources = {}
+            first = node[0]
+            min_prio = first.priority
+            for n in node:
+                if n.priority < min_prio:
+                    min_prio = n.priority
+                    first = n
+            first_offset = self._node_sched_with_block_bound(dfg, first, block)
+            for task in results:
+                if task[0] == "calc_init":
                     continue
+                n = tasks[task[0]] 
+                begin = int(task[2]) + first_offset
+                end = int(task[3]) + first_offset
                 res = task[1]
-                begin = int(task[2])
-                end = int(task[3])
                 if max_latency < end:
                     max_latency = end
-                node = tasks[task_name]
-                self._apply_schedule_result(dfg, node, begin, end)
-                self._add_node_to_res_table(node, begin, end, res)
+                priority = n.priority
+                if priority not in up_priorities:
+                    for n2 in node:
+                        if n2.priority > priority:
+                            n2.priority += 1
+                    up_priorities.append(priority)
+                self._add_node_to_res_table(n, begin + 1, end + 1, res, using_resources)
+                self._apply_schedule_result(dfg, n, begin, end, tasks, visited)
+            self._remove_alias_if_needed(dfg)
+            for n in node:
+                if n not in visited:
+                    visited.append(n)
+                    _, _, latency = self.node_latency_map[n]
+                    shceduled_time = self._node_sched_with_block_bound(dfg, n, block)
+                    n.begin = shceduled_time
+                    n.end = n.begin + latency
+                # print("\nnode: " + str(n))
+                # print("begin: " + str(n.begin))
+                # print("end: " + str(n.end))
+            # print(dfg)
             total_latency += max_latency
-            for res, num in resources.items():
-                res_name = res if isinstance(res, str) else res.name
-                if res_name in self.res_dict.keys():
-                    num = max(num, self.max_res[res])
+            # print(using_resources)
+            for res_name, res in resources.items():
+                res_name = res_name if isinstance(res_name, str) else res_name.name
+                if res_name == "start":
+                    continue
+                num = using_resources[res_name]
                 self.res_dict[res_name] = num
+            self.phonys = []
+            self.hide_tasks = []
+        result_file = open("./scheduling/schedule_result" + self.scope.name + ".txt", "w")
+        for res_name, num in self.res_dict.items():
+            result_file.write(res_name + ": " + str(len(num)) + "\n")
+        result_file.close()
         return max_latency
 
-    def _add_nodes_to_scheduler(
-        self, dfg, nodes, block, resources
-    ) -> dict[DFNode, Scenario.Task]:
-        phony_num = 0
+    def _add_nodes_to_scheduler(self, dfg, nodes, block, resources) -> dict[DFNode, Scenario.Task]:
+        print("\nblock: " + block.name)
         tasks = {}
         node_num = 0
+        first_prio = 0
+        is_first = True
+        start = self.scheduler.Task("calc_init", length=0, delay_cost=1)
+        start += resources["start"]
         for n in sorted(nodes, key=lambda n: (n.priority, n.stm_index)):
             if n.tag.block is not block:
                 continue
             _, _, latency = self.node_latency_map[n]
+            # if latency == 0:
+            #     continue
             if n.tag.is_a(MOVE):
-                if n.tag.src.is_a([BINOP, UNOP]):
+                if n.tag.src.is_a([BINOP, UNOP]) and n.tag.src.op in (
+                    "Add",
+                    "Sub",
+                    "Mult",
+                    "Div",
+                    "FloorDiv",
+                ):
                     op = n.tag.src.op
-                    task = self.scheduler.Task(
-                        op + str(node_num), length=latency, delay_cost=1
-                    )
+                    task = self.scheduler.Task(op + str(node_num), length=latency, delay_cost=1)
                     task += alt(resources[op])
-                    result_task = self.scheduler.Task(
-                        "result" + str(node_num), length=1, delay_cost=1
-                    )
-                    phony = self.scheduler.Resources(
-                        "phony_" + str(phony_num) + "_", num=1
-                    )
-                    phony_num += 1
-                    result_task += phony
-                    self.scheduler += task < result_task
-                    task = (task, result_task)
+                    # result_task = self.scheduler.Task(
+                    #     "result" + str(node_num), length=1, delay_cost=1
+                    # )
+                    # phony = self.scheduler.Resources(
+                    #     "phony_" + str(phony_num) + "_", num=1
+                    # )
+                    # phony_num += 1
+                    # result_task += phony
+                    # self.phonys.append(phony[0])
+                    # self.scheduler += task < result_task
+                    # task = (task, result_task)
+                    # self.hide_tasks.append(result_task)
+                    if is_first:
+                        first_prio = n.priority
+                        is_first = False
                 elif n.tag.src.is_a(CALL):
                     func = n.tag.src.func_scope()
                     task = self.scheduler.Task(
                         func.name + str(node_num), length=latency, delay_cost=1
                     )
-                    task += alt(resources[func])
+                    task += alt(resources[func.name])
+                    if is_first:
+                        first_prio = n.priority
+                        is_first = False
                 else:
-                    task = self.scheduler.Task(
-                        "other" + str(node_num), length=latency, delay_cost=1
-                    )
-                    phony = self.scheduler.Resources(
-                        "phony_" + str(phony_num) + "_", num=1
-                    )
-                    phony_num += 1
-                    task += phony
+                    # task = self.scheduler.Task(
+                    #     "other" + str(node_num), length=latency, delay_cost=1
+                    # )
+                    # phony = self.scheduler.Resources(
+                    #     "phony_" + str(phony_num) + "_", num=1
+                    # )
+                    # phony_num += 1
+                    # task += phony
+                    # self.phonys.append(phony[0])
+                    continue
             elif n.tag.is_a(EXPR):
                 if n.tag.exp.is_a(CALL):
                     task = self.scheduler.Task(
@@ -519,54 +625,89 @@ class ResourceRestrictedBlockBoundedListScheduler(SchedulerImpl):
                         delay_cost=1,
                     )
                     func = n.tag.exp.func_scope()
-                    task += alt(resources[func])
+                    task += alt(resources[func.name])
+                    if is_first:
+                        first_prio = n.priority
+                        is_first = False
                 else:
-                    task = self.scheduler.Task(
-                        "other" + str(node_num), length=latency, delay_cost=1
-                    )
-                    phony = self.scheduler.Resources(
-                        "phony_" + str(phony_num) + "_", num=1
-                    )
-                    phony_num += 1
-                    task += phony
+                    # task = self.scheduler.Task(
+                    #     "other" + str(node_num), length=latency, delay_cost=1
+                    # )
+                    # phony = self.scheduler.Resources(
+                    #     "phony_" + str(phony_num) + "_", num=1
+                    # )
+                    # phony_num += 1
+                    # task += phony
+                    # self.phonys.append(phony[0])
+                    continue
             else:
-                task = self.scheduler.Task(
-                    "other" + str(node_num), length=latency, delay_cost=1
-                )
-                phony = self.scheduler.Resources("phony_" + str(phony_num) + "_", num=1)
-                phony_num += 1
-                task += phony
+                # task = self.scheduler.Task(
+                #     "other" + str(node_num), length=latency, delay_cost=1
+                # )
+                # phony = self.scheduler.Resources("phony_" + str(phony_num) + "_", num=1)
+                # phony_num += 1
+                # task += phony
+                # self.phonys.append(phony[0])
+                continue
             tasks[n] = task
-            succs = dfg.succs_without_back(n)
             node_num += 1
         for n in sorted(nodes, key=lambda n: (n.priority, n.stm_index)):
             if n.tag.block is not block:
                 continue
-            task = tasks[n]
-            succs = dfg.succs_without_back(n)
-            for succ in succs:
-                if succ.tag.block is not block:
-                    continue
-                succ_task = tasks[succ]
-                if isinstance(succ_task, tuple):
-                    calc, result = succ_task
-                    if isinstance(task, tuple):
-                        task, result = task
-                        self.scheduler += result < calc
+            if n not in tasks.keys():
+                continue
+            visited = [n]
+            if n.priority == 0:
+                self.scheduler += start < tasks[n]
+                print("start < " + tasks[n].name)
+            else:
+                self.scheduler += start + n.priority < tasks[n]
+                print("start + " + str(n.priority) + " < " + tasks[n].name)
+            succs = dfg.succs_typ_without_back(n, "DefUse") + dfg.preds_typ_without_back(
+                n, "UseDef"
+            ) + dfg.succs_typ_without_back(n, "Seq")
+            succs = utils.unique(succs)
+            distance = 1
+            task_pair = {}
+            while succs:
+                next_succs = []
+                for succ in succs:
+                    if succ in visited:
+                        continue
+                    if succ not in tasks.keys():
+                        visited.append(succ)
+                        next_succs += dfg.succs_typ_without_back(succ, "DefUse")
+                        next_succs += dfg.preds_typ_without_back(succ, "UseDef")
+                        next_succs += dfg.succs_typ_without_back(succ, "Seq")
+                        next_succs = utils.unique(next_succs)
+                        continue
+                    succ_task = tasks[succ]
+                    if succ.priority <= n.priority:
+                        continue
+                    pair = (tasks[n], succ_task)
+                    if pair not in task_pair.keys():
+                        task_pair[pair] = distance
                     else:
-                        self.scheduler += task < calc
+                        task_pair[pair] = max(task_pair[pair], distance)
+                if next_succs:
+                    succs = next_succs
+                    distance += 1
                 else:
-                    if isinstance(task, tuple):
-                        _, task = task
-                    self.scheduler += task < succ_task
+                    break
+            for pair, distance in task_pair.items():
+                self.scheduler += pair[0] + distance < pair[1]
+                print(pair[0].name + " + " + str(distance) + " < " + pair[1].name)
+        print("stms: ")
+        for i, n in enumerate(sorted(nodes, key=lambda n: (n.priority, n.stm_index))):
+            if n in tasks.keys():
+                print(str(i) + ": " + str(n), ": ", tasks[n])
+            else:
+                print(str(i) + ": " + str(n))
+        print("node num: " + str(node_num))
+        tasks = {k: v[0] if isinstance(v, tuple) else v for k, v in tasks.items()}
+        return tasks, first_prio
 
-        tasks = {
-            k: v[0] if isinstance(v, tuple) else v
-            for k, v in tasks.items()
-        }
-        return tasks
-
-    def _add_node_to_res_table(self, node, begin, end, res):
+    def _add_node_to_res_table(self, node, begin, end, res, using):
         resource_name = re.match(r"^(.*?)(\d+)$", res)
         if resource_name:
             instance_num = int(resource_name.group(2))
@@ -575,7 +716,16 @@ class ResourceRestrictedBlockBoundedListScheduler(SchedulerImpl):
             return
         if resource_name.startswith("phony_"):
             return
+        if resource_name.endswith("er"):
+            resource_name = resource_name[:-2]
+        elif resource_name.startswith("func_"):
+            resource_name = resource_name[5:]
         node.instance_num = instance_num
+        if resource_name not in using:
+            using[resource_name] = [instance_num]
+        else:
+            if instance_num not in using[resource_name]:
+                using[resource_name].append(instance_num)
         if resource_name not in self.res_tables:
             table = defaultdict(list)
             self.res_tables[resource_name] = table
@@ -584,23 +734,199 @@ class ResourceRestrictedBlockBoundedListScheduler(SchedulerImpl):
         for i in range(begin, end):
             table[i].append(node)
 
-    def _apply_schedule_result(self, dfg, node, begin, end):
+    def _apply_schedule_result(self, dfg, node, begin, end, tasks, visited):
+        visited.append(node)
         if node.tag.is_a(MOVE) and node.tag.src.is_a(BINOP):
-            node.begin = begin
-            node.end = end
+            op = node.tag.src.op
+            stm_index = node.stm_index
+            scope = dfg.scope
+            block = node.tag.block
+            priority = node.priority
+            lineno = node.tag.loc.lineno
+            filename = node.tag.loc.filename
+            left_name = str(op) + "_" + str(node.instance_num) + "_left"
+            right_name = str(op) + "_" + str(node.instance_num) + "_right"
+            int_type = Type.int()
+            default_tags = {"induction"}
+            if isinstance(node.tag.src.left, TEMP):
+                left_typ = node.tag.src.left.sym.typ
+                tags = node.tag.src.left.sym.tags
+                left = TEMP(Symbol(left_name, tags=tags, scope=scope, typ=left_typ), Ctx.LOAD)
+                left_init = TEMP(Symbol(left_name, tags=tags, scope=scope, typ=left_typ), Ctx.STORE)
+            elif isinstance(node.tag.src.left, CONST):
+                left = node.tag.src.left
+                left_init = TEMP(
+                    Symbol(left_name, tags=default_tags, scope=scope, typ=int_type), Ctx.STORE
+                )
+            if isinstance(node.tag.src.right, TEMP):
+                right_typ = node.tag.src.right.sym.typ
+                tags = node.tag.src.right.sym.tags
+                right = TEMP(Symbol(right_name, tags=tags, scope=scope, typ=right_typ), Ctx.LOAD)
+                right_init = TEMP(
+                    Symbol(right_name, tags=tags, scope=scope, typ=right_typ), Ctx.STORE
+                )
+            elif isinstance(node.tag.src.right, CONST):
+                right = node.tag.src.right
+                right_init = TEMP(
+                    Symbol(right_name, tags=default_tags, scope=scope, typ=int_type), Ctx.STORE
+                )
+            node_succ = dfg.succ_edges[node]
+            node_pred = dfg.pred_edges[node]
+            removes = []
+            for (n1, n2), (typ, _) in dfg.edges.items():
+                if n1 == node:
+                    removes.append((n1, n2, typ))
+                elif n2 == node:
+                    removes.append((n1, n2, typ))
+            if removes != []:
+                for n1, n2, _ in removes:
+                    dfg.remove_edge(n1, n2)
+            dfg.remove_node(node)
+            if node in dfg.src_nodes:
+                dfg.src_nodes.remove(node)
+            calc_node = BINOP(op, left, right)
+            calc_node = MOVE(node.tag.dst, calc_node, loc=Loc(filename, lineno))
+            init_left = MOVE(left_init, node.tag.src.left, loc=Loc(filename, lineno))
+            init_right = MOVE(right_init, node.tag.src.right, loc=Loc(filename, lineno))
+            # print("\nbefore")
+            # print(stm_index)
+            # print(str(node))
+            # for i, stm in enumerate(block.stms):
+            #     print(str(i) + ": " + str(stm))
+            block.stms[stm_index] = calc_node
+            block.stms.insert(stm_index, init_left)
+            block.stms.insert(stm_index, init_right)
+            # print("\nafter")
+            # for i, stm in enumerate(block.stms):
+            #     print(str(i) + ": " + str(stm))
+            calc_node.block = block
+            init_left.block = block
+            init_right.block = block
+            # print("\nnode: ", node)
+            # print("calc_node: " + str(calc_node))
+            # print("init_left: " + str(init_left))
+            # print("init_right: " + str(init_right))
+            dfg.update_stm_index()
+            calc_node = dfg.add_stm_node(calc_node)
+            init_left = dfg.add_stm_node(init_left)
+            init_right = dfg.add_stm_node(init_right)
+            dfg.src_nodes.add(init_left)
+            dfg.src_nodes.add(init_right)
+            dfg.src_nodes.add(calc_node)
+            init_left.begin = begin
+            init_left.end = begin + 1
+            init_right.begin = begin
+            init_right.end = begin + 1
+            calc_node.begin = begin + 1
+            calc_node.end = end + 1
+            init_left.priority = priority
+            init_right.priority = priority
+            calc_node.priority = priority + 1
+            calc_node.instance_num = node.instance_num
+            end = end + 1
+            dfg.add_defuse_edge(init_left, calc_node)
+            dfg.add_defuse_edge(init_right, calc_node)
+            self.node_latency_map[init_left] = (1, 1, 1)
+            self.node_latency_map[init_right] = (1, 1, 1)
+            if removes != []:
+                for n1, n2, typ in removes:
+                    if n1 == node:
+                        match typ:
+                            case "DefUse":
+                                dfg.add_defuse_edge(calc_node, n2)
+                            case "UseDef":
+                                dfg.add_usedef_edge(init_left, n2)
+                                dfg.add_usedef_edge(init_right, n2)
+                    elif n2 == node:
+                        match typ:
+                            case "DefUse":
+                                dfg.add_defuse_edge(n1, init_left)
+                                dfg.add_defuse_edge(n1, init_right)
+                            case "UseDef":
+                                dfg.add_usedef_edge(n1, calc_node)
+            new_succ_calc = defaultdict(set)
+            new_pred_calc = defaultdict(set)
+            new_succ_init = defaultdict(set)
+            new_pred_init = defaultdict(set)
+            for succ in node_succ:
+                typ = succ[3]
+                if typ == "DefUse" or typ == "Seq":
+                    new_succ_calc.add(succ)
+                elif typ == "UseDef":
+                    new_succ_init.add(succ)
+            for pred in node_pred:
+                typ = pred[3]
+                if typ == "DefUse" or typ == "Seq":
+                    new_pred_init.add(pred)
+                elif typ == "UseDef":
+                    new_pred_calc.add(pred)
+            for succ in new_succ_calc:
+                dfg.succ_edges[calc_node].add(succ)
+            for pred in new_pred_calc:
+                dfg.pred_edges[calc_node].add(pred)
+            for succ in new_succ_init:
+                dfg.succ_edges[init_left].add(succ)
+                dfg.succ_edges[init_right].add(succ)
+            for pred in new_pred_init:
+                dfg.pred_edges[init_left].add(pred)
+                dfg.pred_edges[init_right].add(pred)
+            dfg.update_stm_index()
         else:
             node.begin = begin
             node.end = end
 
+    def _node_sched_with_block_bound(self, dfg, node, block):
+        preds = dfg.preds_without_back(node)
+        preds = [p for p in preds if p.tag.block is block]
+        logger.debug("scheduling for " + str(node))
+        if preds:
+            defuse_preds = dfg.preds_typ_without_back(node, "DefUse")
+            defuse_preds = [p for p in defuse_preds if p.tag.block is block]
+            usedef_preds = dfg.preds_typ_without_back(node, "UseDef")
+            usedef_preds = [p for p in usedef_preds if p.tag.block is block]
+            seq_preds = dfg.preds_typ_without_back(node, "Seq")
+            seq_preds = [p for p in seq_preds if p.tag.block is block]
+            sched_times = []
+            if seq_preds:
+                if node.tag.is_a([JUMP, CJUMP, MCJUMP]) or has_exclusive_function(node.tag):
+                    latest_node = max(seq_preds, key=lambda p: p.end)
+                    sched_time = latest_node.end
+                else:
+                    latest_node = max(seq_preds, key=lambda p: (p.begin, p.end))
+                    seq_latency = self.node_seq_latency_map[latest_node]
+                    sched_time = latest_node.begin + seq_latency
+                sched_times.append(sched_time)
+                logger.debug("latest_node of seq_preds " + str(latest_node))
+                logger.debug("schedtime " + str(sched_time))
+            if defuse_preds:
+                latest_node = max(defuse_preds, key=lambda p: p.end)
+                logger.debug("latest_node of defuse_preds " + str(latest_node))
+                sched_times.append(latest_node.end)
+                logger.debug("schedtime " + str(latest_node.end))
+            if usedef_preds:
+                preds = [self._find_latest_alias(dfg, pred) for pred in usedef_preds]
+                latest_node = max(preds, key=lambda p: p.begin)
+                logger.debug("latest_node(begin) of usedef_preds " + str(latest_node))
+                sched_times.append(latest_node.begin)
+                logger.debug("schedtime " + str(latest_node.begin))
+            if not sched_times:
+                latest_node = max(preds, key=lambda p: p.begin)
+                sched_times.append(latest_node.begin)
+            scheduled_time = max(sched_times)
+            if scheduled_time < 0:
+                scheduled_time = 0
+        else:
+            # source node
+            scheduled_time = 0
+        return scheduled_time
+
     def get_result(self):
-        solution = [
-            ["hoge"] * len(self.scheduler.solution()[1])
-            for i in range(len(self.scheduler.solution()))
-        ]
+        solution = []
 
         for i in range(len(self.scheduler.solution())):
+            solution.append([])
             for j in range(len(self.scheduler.solution()[i])):
-                solution[i][j] = str(self.scheduler.solution()[i][j])
+                solution[i].append(str(self.scheduler.solution()[i][j]))
 
         return solution
 
@@ -620,9 +946,7 @@ class PipelineScheduler(SchedulerImpl):
                 logger.debug("before rescheduling")
                 for n in dfg.get_scheduled_nodes():
                     logger.debug(n)
-                latency = self._reschedule_for_conflict(
-                    dfg, conflict_res_table, latency
-                )
+                latency = self._reschedule_for_conflict(dfg, conflict_res_table, latency)
             if longest_latency < latency:
                 longest_latency = latency
             self._fill_defuse_gap(dfg, nodes)
@@ -631,15 +955,9 @@ class PipelineScheduler(SchedulerImpl):
 
     def _make_conflict_res_table(self, nodes):
         conflict_res_table = defaultdict(list)
-        self._extend_conflict_res_table(
-            conflict_res_table, nodes, self.res_extractor.mems
-        )
-        self._extend_conflict_res_table(
-            conflict_res_table, nodes, self.res_extractor.ports
-        )
-        self._extend_conflict_res_table(
-            conflict_res_table, nodes, self.res_extractor.regarrays
-        )
+        self._extend_conflict_res_table(conflict_res_table, nodes, self.res_extractor.mems)
+        self._extend_conflict_res_table(conflict_res_table, nodes, self.res_extractor.ports)
+        self._extend_conflict_res_table(conflict_res_table, nodes, self.res_extractor.regarrays)
         return conflict_res_table
 
     def _extend_conflict_res_table(self, table, target_nodes, node_res_map):
@@ -661,9 +979,7 @@ class PipelineScheduler(SchedulerImpl):
     def _schedule_ii(self, dfg):
         initiation_interval = int(dfg.synth_params["ii"])
         if not self.all_paths:
-            for path in dfg.trace_all_paths(
-                lambda n: dfg.succs_typ_without_back(n, "DefUse")
-            ):
+            for path in dfg.trace_all_paths(lambda n: dfg.succs_typ_without_back(n, "DefUse")):
                 self.all_paths.append(path)
         induction_paths = self._find_induction_paths(self.all_paths)
         if initiation_interval < 0:
@@ -825,9 +1141,7 @@ class PipelineScheduler(SchedulerImpl):
             seq_preds = dfg.preds_typ_without_back(node, "Seq")
             sched_times = []
             if seq_preds:
-                if node.tag.is_a([JUMP, CJUMP, MCJUMP]) or has_exclusive_function(
-                    node.tag
-                ):
+                if node.tag.is_a([JUMP, CJUMP, MCJUMP]) or has_exclusive_function(node.tag):
                     latest_node = max(seq_preds, key=lambda p: p.end)
                     sched_times.append(latest_node.end)
                     logger.debug("latest_node of seq_preds " + str(latest_node))
@@ -893,7 +1207,7 @@ class ResourceExtractor(IRVisitor):
                     resources[op] = num
         return resources
 
-    def calc_resources_in_blcok(self, block):
+    def calc_resources_in_block(self, block):
         resources = {}
         for node, ops in self.ops.items():
             if node.tag.block is not block:
@@ -912,9 +1226,7 @@ class ResourceExtractor(IRVisitor):
     def visit_CALL(self, ir):
         self.ops[self.current_node][ir.func_scope()] += 1
         func_name = ir.func_scope().name
-        if func_name.startswith("polyphony.io.Port") or func_name.startswith(
-            "polyphony.io.Queue"
-        ):
+        if func_name.startswith("polyphony.io.Port") or func_name.startswith("polyphony.io.Queue"):
             inst_ = ir.func.tail()
             self.ports[self.current_node].append(inst_)
         super().visit_CALL(ir)

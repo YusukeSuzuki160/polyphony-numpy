@@ -668,8 +668,6 @@ class AHDLTranslator(object):
         return width
 
     def _sym_2_sig(self, sym):
-        if sym.hdl_name() == 'x2':
-            print("\nis_alias", sym.is_alias())
         if sym in self.sym2sig_map:
             return self.sym2sig_map[sym]
         tags = set()

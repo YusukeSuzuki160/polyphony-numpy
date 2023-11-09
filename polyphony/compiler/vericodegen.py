@@ -12,6 +12,7 @@ from .stg import State
 from .stg_pipeline import PipelineState, PipelineStage
 from .verilog_common import pyop2verilogop, is_verilog_keyword
 from logging import getLogger
+import re
 
 logger = getLogger(__name__)
 
@@ -22,8 +23,9 @@ class VerilogCodeGen(AHDLVisitor):
         self.indent = 0
         self.hdlmodule = hdlmodule
         self.mrg = env.memref_graph
-        self.next_state = []
+        self.rst_stms = []
         self.res_dict = hdlmodule.scope.res_dict
+        self.resource_restrict = hdlmodule.scope.resource_restrict
 
     def result(self):
         return "".join(self.codes)
@@ -87,6 +89,7 @@ class VerilogCodeGen(AHDLVisitor):
         self.emit("if (rst) begin")
         self.set_indent(2)
 
+        self.rst_stms = fsm.reset_stms
         for stm in sorted(fsm.reset_stms, key=lambda s: str(s)):
             if stm.dst.is_a(AHDL_VAR) and stm.dst.sig.is_net():
                 continue
@@ -113,7 +116,11 @@ class VerilogCodeGen(AHDLVisitor):
 
         for stg in sorted(fsm.stgs, key=lambda s: s.name):
             for i, state in enumerate(stg.states):
-                self._process_State(state)
+                if state.name.endswith("_INIT"):
+                    reset = True
+                else:
+                    reset = False
+                self._process_State(state, reset=reset)
 
         self.emit("endcase")
         self.set_indent(-2)
@@ -237,16 +244,19 @@ class VerilogCodeGen(AHDLVisitor):
             return
         self.emit("//resource signals")
         for name, res in sorted(self.res_dict.items()):
-            if name == ("Add" or "Sub" or "Mult" or "Div"):
-                for i in range(len(res)):
+            if name in ("Add", "Sub", "Div", "FloorDiv"):
+                for i in res:
+                    # self.emit(f"reg [{env.config.default_int_width-1}:0] {name}_{i}_left;")
+                    # self.emit(f"reg [{env.config.default_int_width-1}:0] {name}_{i}_right;")
                     self.emit(
-                        f"reg [{env.config.default_int_width-1}:0] {name}_{i}_left;"
+                        f"wire signed [{env.config.default_int_width-1}:0] {name}_{i}_result;"
                     )
+            elif name == "Mult":
+                for i in res:
+                    # self.emit(f"reg [{env.config.default_int_width-1}:0] {name}_{i}_left;")
+                    # self.emit(f"reg [{env.config.default_int_width-1}:0] {name}_{i}_right;")
                     self.emit(
-                        f"reg [{env.config.default_int_width-1}:0] {name}_{i}_right;"
-                    )
-                    self.emit(
-                        f"wire [{env.config.default_int_width-1}:0] {name}_{i}_result;"
+                        f"wire signed [{env.config.default_int_width*2-1}:0] {name}_{i}_result;"
                     )
 
     def _generate_res_use(self):
@@ -254,7 +264,7 @@ class VerilogCodeGen(AHDLVisitor):
             return
         self.emit("//resource use")
         for name, res in sorted(self.res_dict.items()):
-            if name == ("Add" or "Sub" or "Mult" or "Div"):
+            if name in ("Add", "Sub", "Mult", "Div", "FloorDiv"):
                 match name:
                     case "Add":
                         op = "+"
@@ -262,11 +272,11 @@ class VerilogCodeGen(AHDLVisitor):
                         op = "-"
                     case "Mult":
                         op = "*"
-                    case "Div":
+                    case "Div" | "FloorDiv":
                         op = "/"
                     case _:
                         assert False
-                for i in range(len(res)):
+                for i in res:
                     self.emit(
                         f"assign {name}_{i}_result = {name}_{i}_left {op} {name}_{i}_right;"
                     )
@@ -414,18 +424,30 @@ class VerilogCodeGen(AHDLVisitor):
                 f"assign {detect_var_name} = ({delayed_name}=={old} && {sig.name}=={new});"
             )
 
-    def _process_State(self, state):
+    def _process_State(self, state, reset=False):
         self.current_state = state
         code = f"{state.name}: begin"
         self.emit(code)
         self.set_indent(2)
         if env.hdl_debug_mode:
-            self.emit(f'$display("%8d:STATE:{self.hdlmodule.name}  {state.name}", $time);')
-        for stm in self.next_state:
-            self.emit(stm)
+            self.emit(
+                f'$display("%8d:STATE:{self.hdlmodule.name}  {state.name}", $time);'
+            )
         self.next_state = []
         self.visit_State(state)
-
+        if reset and (
+            self.hdlmodule.scope.is_verilog()
+            or self.hdlmodule.scope.is_function_module()
+        ):
+            ready_name = self.hdlmodule.name + "_ready"
+            self.emit("if (!" + ready_name + ") begin")
+            self.set_indent(2)
+            for stm in sorted(self.rst_stms, key=lambda s: str(s)):
+                if stm.dst.is_a(AHDL_VAR) and stm.dst.sig.is_net():
+                    continue
+                self.visit(stm)
+            self.set_indent(-2)
+            self.emit("end")
         self.set_indent(-2)
         self.emit("end")
 
@@ -456,18 +478,28 @@ class VerilogCodeGen(AHDLVisitor):
             return sig.name
         if is_verilog_keyword(sig.name):
             return sig.name + "_"
+        if sig.name.startswith("in_") or sig.name.startswith("out_"):
+            if sig.name.startswith("in_"):
+                return sig.name[3:]
+            else:
+                return sig.name[4:]
         return sig.name
 
     def visit_AHDL_VAR(self, ahdl):
-        return self._safe_name(ahdl.sig)
+        safe_name = self._safe_name(ahdl.sig).replace(".", "_")
+        return safe_name
 
     def visit_AHDL_MEMVAR(self, ahdl):
         return self._safe_name(ahdl.sig)
 
     def visit_AHDL_SUBSCRIPT(self, ahdl):
         if ahdl.is_param():
-            hdl_name = ahdl.name.hdl_name()
-            return f"{hdl_name}_{self.visit(ahdl.memvar)}{self.visit(ahdl.offset)}"
+            sig_name = self.visit(ahdl.memvar)
+            if sig_name.startswith("in_"):
+                sig_name = sig_name[3:]
+            elif sig_name.startswith("out_"):
+                sig_name = sig_name[4:]
+            return f"{sig_name}[{self.visit(ahdl.offset)}]"
         else:
             return f"{self.visit(ahdl.memvar)}[{self.visit(ahdl.offset)}]"
 
@@ -513,29 +545,33 @@ class VerilogCodeGen(AHDLVisitor):
 
     def _gen_binop_move(self, ahdl):
         instance_num = ahdl.src.instance_num
-        if ahdl.src.op == "Add":
-            op = "+"
-        elif ahdl.src.op == "Sub":
-            op = "-"
-        elif ahdl.src.op == "Mult":
-            op = "*"
-        elif ahdl.src.op == "Div":
-            op = "/"
-        else:
-            assert False
-        left = self.visit(ahdl.src.args[0])
-        right = self.visit(ahdl.src.args[1])
+        # if ahdl.src.op == "Add":
+        #     op = "+"
+        # elif ahdl.src.op == "Sub":
+        #     op = "-"
+        # elif ahdl.src.op == "Mult":
+        #     op = "*"
+        # elif ahdl.src.op == "Div" or ahdl.src.op == "FloorDiv":
+        #     op = "/"
+        # else:
+        #     assert False
+        # left = self.visit(ahdl.src.args[0])
+        # right = self.visit(ahdl.src.args[1])
         dst = self.visit(ahdl.dst)
-        op_left_name = f"{ahdl.src.op}_{instance_num}_left"
-        op_right_name = f"{ahdl.src.op}_{instance_num}_right"
+        # op_left_name = f"{ahdl.src.op}_{instance_num}_left"
+        # op_right_name = f"{ahdl.src.op}_{instance_num}_right"
         op_result_name = f"{ahdl.src.op}_{instance_num}_result"
-        self.emit(f"{op_right_name} <= {right};")
-        self.emit(f"{op_left_name} <= {left};")
-        self.emit_next_state(f"{dst} <= {op_result_name};", indent=0, newline=False)
+        # self.emit(f"{op_right_name} <= {right};")
+        # self.emit(f"{op_left_name} <= {left};")
+        # self.emit_next_state(f"{dst} <= {op_result_name};", indent=0, newline=False)
+        self.emit(f"{dst} <= {op_result_name};")
 
     def visit_AHDL_MOVE(self, ahdl):
         if ahdl.src.is_a(AHDL_OP):
-            if ahdl.src.op == ("Add" or "Sub" or "Mult" or "Div"):
+            if (
+                ahdl.src.op in ("Add", "Sub", "Mult", "Div", "FloorDiv")
+                and self.resource_restrict
+            ):
                 self._gen_binop_move(ahdl)
                 return
         if (

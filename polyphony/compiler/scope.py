@@ -15,6 +15,7 @@ from .ir import CONST, JUMP, CJUMP, MCJUMP, PHIBase
 from .signal import Signal
 from logging import getLogger
 import re
+import inspect
 logger = getLogger(__name__)
 
 
@@ -40,7 +41,12 @@ class Scope(Tagged):
     def create(cls, parent, name, tags, lineno=0, origin=None):
         if name is None:
             name = "unnamed_scope" + str(cls.scope_id)
-        s = Scope(parent, name, tags, lineno, cls.scope_id)
+        synth_params = None
+        if "function" in tags:
+            func_name = parent.name + "." + name if parent else name
+            if func_name in env.config.synth_params.keys():
+                synth_params = env.config.synth_params[func_name]
+        s = Scope(parent, name, tags, lineno, cls.scope_id, synth_params=synth_params)
         if s.name in env.scopes:
             env.append_scope(s)
             fail((env.scope_file_map[s], lineno), Errors.REDEFINED_NAME, {name})
@@ -144,9 +150,9 @@ class Scope(Tagged):
         return self.parent is not None and (re.match(r"complex*", self.parent.name) or re.match(r"list*", self.parent.name))
     
     def is_main(self):
-        return self.name == "@top.main"
+        return self.name == self.main_name
 
-    def __init__(self, parent, name, tags, lineno, scope_id):
+    def __init__(self, parent, name, tags, lineno, scope_id, main_name="@top.main", synth_params=None):
         super().__init__(tags)
         self.name = name
         self.orig_name = name
@@ -176,10 +182,15 @@ class Scope(Tagged):
         self.worker_owner = None
         self.asap_latency = -1
         self.type_args = []
-        self.synth_params = make_synth_params()
+        if synth_params is None:
+            self.synth_params = make_synth_params()
+        else:
+            self.synth_params = synth_params
         self.constants = {}
         self.branch_graph = Graph()
         self.res_dict = {}
+        self.main_name = main_name
+        self.resource_restrict = False
 
     def __str__(self):
         s = '\n================================\n'
@@ -225,6 +236,13 @@ class Scope(Tagged):
         elif self.order == other.order:
             return self.lineno < other.lineno
         
+    def append_res_dict(self, res_dict):
+        for res_name, num in res_dict.items():
+            if res_name not in self.res_dict.keys():
+                self.res_dict[res_name] = num
+            else:
+                num = max(num, self.res_dict[res_name])
+                self.res_dict[res_name] = num
 
     def clone_symbols(self, scope, postfix=''):
         symbol_map = {}

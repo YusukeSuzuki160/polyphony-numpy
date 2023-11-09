@@ -842,10 +842,14 @@ class RegArrayAccessor(IOAccessor):
         super().__init__(inf, inst_name)
         self.ports = inf.ports.clone()
 
-    def port_name(self, port, hdl_name=None):
+    def port_name(self, port):
         if self.inf.subscript:
-            if (self.acc_name.startswith("in_") or port.name.startswith("out_")) and hdl_name:
-                return f"{hdl_name}_{self.acc_name}{port.name}"
+            if (self.acc_name.startswith("in_") or port.name.startswith("out_")):
+                if self.acc_name.startswith("in_"):
+                    acc_name = self.acc_name[3:]
+                else:
+                    acc_name = self.acc_name[4:]
+                return f"{acc_name}[{port.name}]"
             else:
                 return '{}[{}]'.format(self.acc_name, port.name)
         else:

@@ -3,6 +3,7 @@ from .ir import *
 from .irvisitor import IRVisitor
 from .env import env
 from logging import getLogger
+
 logger = getLogger(__name__)
 
 
@@ -18,6 +19,9 @@ class RomDetector(object):
             if source.is_writable():
                 source.propagate_succs(lambda n: n.set_writable())
             else:
+                source.propagate_succs(
+                    lambda n: n.set_writable() if source.scope != n.scope else None
+                )
                 worklist.append(source)
 
         checked = set()

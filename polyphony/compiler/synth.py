@@ -18,14 +18,16 @@ class DefaultSynthParamSetter(object):
     testbench_params = {
         'scheduling':'parallel',
         'cycle':'minimum',
-        "resource": "free",
+        "resource":"free",
+        "solver":"mip",
         'ii':1,
     }
     scope_params = {
         'scheduling':'parallel',
-        'cycle':'less:50',
-        "resource": {"Add": 1},
-        # "resource": "free",
+        'cycle':'minimum',
+        # "resource": {"Add": 2},
+        "resource":"free",
+        "solver":"mip",
         'ii':-1,
     }
 

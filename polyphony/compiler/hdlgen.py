@@ -127,6 +127,8 @@ class HDLModuleBuilder(object):
             memnode = roms.pop()
             hdl_name = memnode.name()
             source = memnode.single_source()
+            if source == memnode:
+                continue
             if source:
                 source_scope = source.scope
                 if source_scope.is_class():  # class field rom
