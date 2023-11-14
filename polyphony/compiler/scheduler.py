@@ -20,6 +20,7 @@ import time
 from .type import Type
 from . import utils
 from .env import env
+
 logger = getLogger(__name__)
 
 MAX_FUNC_UNIT = 100
@@ -33,6 +34,7 @@ class Scheduler(object):
         if scope.is_namespace() or scope.is_class() or scope.is_lib():
             return
         self.scope = scope
+        scenarios = []
         for dfg in self.scope.dfgs(bottom_up=True):
             if dfg.parent and dfg.synth_params["scheduling"] == "pipeline":
                 scheduler_impl = PipelineScheduler()
@@ -43,8 +45,216 @@ class Scheduler(object):
                 else:
                     scheduler_impl = ResourceRestrictedBlockBoundedListScheduler(resource_cond)
                     scope.resource_restrict = True
-            scheduler_impl.schedule(scope, dfg)
+            scenario = scheduler_impl.schedule(scope, dfg)
+            if scenario:
+                scenarios += scenario
             scope.append_res_dict(scheduler_impl.res_dict)
+        if scenarios != []:
+            self.plot_result(
+                scenarios, "./scheduling/schedule_result" + scope.name + ".png", scope.name
+            )
+
+    def plot_result(
+        self,
+        scenarios,
+        img_filename,
+        scope_name,
+        hide_tasks=[],
+        hide_resources=[],
+        fig_size=(30, 10),
+    ):
+        import matplotlib.pyplot as plt
+        import matplotlib.patches as patches
+        import random
+        import operator
+
+        resource_height = 1.0
+        show_task_labels = True
+        vertical_text = False
+        color_prec_groups = False
+        task_colors = {}
+        fig, ax = plt.subplots(1, 1, figsize=fig_size)
+
+        def get_connected_components(edges):
+            comps = dict()
+            for v, u in edges:
+                if v not in comps and u not in comps:
+                    comps[v] = v
+                    comps[u] = v
+                elif v in comps and u not in comps:
+                    comps[u] = comps[v]
+                elif v not in comps and u in comps:
+                    comps[v] = comps[u]
+                elif v in comps and u in comps and comps[v] != comps[u]:
+                    old_comp = comps[u]
+                    for w in comps:
+                        if comps[w] == old_comp:
+                            comps[w] = comps[v]
+            # replace component identifiers by integers startting with 0
+            values = list(comps.values())
+            comps = {T: values.index(comps[T]) for T in comps}
+            return comps
+
+        start_time = 0
+
+        tasks_all = []
+        solutions_all = []
+        resource_y_positions = {}
+        comps_all = {}
+        resource_sizes_count = 0
+        visible_resources = []
+        scenario_end_times = []
+
+        for scenario in scenarios:
+            S = scenario
+            tasks = [T for T in S.tasks() if T not in hide_tasks]
+            tasks = [T for T in tasks if str(T) != "calc_init"]
+            tasks_all += tasks
+            # get connected components dict for coloring
+            # each task is mapping to an integer number which corresponds
+            # to its connected component
+            edges = [(T, T) for T in tasks]
+            if color_prec_groups:
+                edges += [
+                    (T, T_)
+                    for P in set(S.precs_lax()) | set(S.precs_tight())
+                    for T in P.tasks()
+                    for T_ in P.tasks()
+                    if T in tasks and T_ in tasks
+                ]
+            comps = get_connected_components(edges)
+            comps_all.update(comps)
+
+            # color map
+            # colors = ["#7EA7D8", "#A1D372", "#EB4845", "#7BCDC8", "#FFF79A"]  # pastel colors
+            # # colors = ['red','green','blue','yellow','orange','black','purple'] #basic colors
+            # colors += [
+            #     [random.random() for i in range(3)] for x in range(len(S.tasks()))
+            # ]
+            # color_map = {T: colors[comps[T]] for T in comps}
+            # replace colors with fixed task colors
+
+            # for T in task_colors:
+            #     color_map[T] = task_colors[T]
+            hide_tasks_str = [T for T in hide_tasks]
+            for T in scenario.tasks():
+                if hasattr(T, "plot_color"):
+                    if T["plot_color"] is not None:
+                        color_map[T] = T["plot_color"]
+                    else:
+                        hide_tasks_str.append(T)
+
+            solution = S.solution()
+            solution = [
+                (T, R, x + start_time, y + start_time)
+                for (T, R, x, y) in solution
+                if T not in hide_tasks_str
+            ]
+            solutions_all += solution
+            start_time = max([y for (T, R, x, y) in solution])
+            scenario_end_times.append(start_time)
+            for R in scenario.resources():
+                if R not in hide_resources and not str(R).startswith("init_sym"):
+                    if str(R) not in resource_y_positions:
+                        if R.size is not None:
+                            resource_size = R.size
+                        else:
+                            resource_size = 1.0
+                        resource_y_positions[str(R)] = resource_sizes_count
+                        resource_sizes_count += resource_size
+            # if not visible_resources:
+            #     raise Exception("ERROR: no resources to plot")
+
+        colors = ["#7EA7D8", "#A1D372", "#EB4845", "#7BCDC8", "#FFF79A"]  # pastel colors
+        colors += [[random.random() for i in range(3)] for x in range(len(tasks_all))]
+        color_map = {T: colors[comps_all[T]] for T in comps_all}
+        for T in task_colors:
+            color_map[T] = task_colors[T]
+        tasks = tasks_all
+        solution = solutions_all
+        total_resource_sizes = sum([R.size for R in visible_resources])
+        R_ticks = list()
+        size_counts = {}
+
+        # for R in visible_resources:
+        #     if R.size is not None:
+        #         resource_size = R.size
+        #     else:
+        #         resource_size = 1.0
+        #     R_ticks += [str(R.name)] * int(resource_size)
+        #     # compute the levels of the tasks on one resource
+        #     task_levels = dict()
+        #     # get solution on resource sorted according to start time
+        #     R_solution = [(T, R_, x, y) for (T, R_, x, y) in solution if R_ == R]
+        #     R_solution = sorted(R_solution, key=lambda x: x[2])
+        #     # iteratively fill all levels on resource, start with empty fill
+        #     level_fill = {i: 0 for i in range(int(resource_size))}
+        #     for T, R_, x, y in R_solution:
+        #         sorted_levels = sorted(level_fill.items(), key=operator.itemgetter(1, 0))
+        #         # get the maximum resource requirement
+        #         coeff = max([RA[R] for RA in T.resources_req if R_ in RA])
+        #         min_levels = [level for level, fill in sorted_levels[:coeff]]
+        #         task_levels[T] = min_levels
+        #         for level in min_levels:
+        #             level_fill[level] += T.length
+        #     # plot solution
+        for T, R, x, x_ in solutions_all:
+            if T.name == "calc_init":
+                continue
+            for level in range(int(R.size)):
+                y = (
+                    resource_sizes_count
+                    - 1
+                    - (resource_y_positions[str(R)] + level * resource_height)
+                )
+                ax.add_patch(
+                    patches.Rectangle(
+                        (x, y),  # (x,y)
+                        max(x_ - x, 0.5),  # width
+                        resource_height,  # height
+                        color=color_map[T],
+                        alpha=0.6,
+                    )
+                )
+                if show_task_labels:
+                    if vertical_text:
+                        text_rotation = 90
+                        y_ = y + 0.9 * resource_height
+                    else:
+                        text_rotation = 0
+                        y_ = y + 0.1 * resource_height
+                    plt.text(
+                        x,
+                        y_,
+                        str(T.name),
+                        fontsize=14,
+                        color="black",
+                        rotation=text_rotation,
+                    )
+
+        prev_end_time = 0
+        for i, end_time in enumerate(scenario_end_times):
+            plt.axvline(x=end_time, color="gray", linestyle="--", linewidth=1)
+            # シナリオ名をプロット
+            mid_point = (prev_end_time + end_time) / 2
+            plt.text(
+                mid_point,
+                resource_sizes_count * resource_height,
+                scenarios[i].name,
+                horizontalalignment="center",
+                verticalalignment="bottom",
+            )
+            prev_end_time = end_time
+        # format graph
+        plt.title(str(scope_name))
+        plt.yticks(
+            [resource_height * x + resource_height / 2.0 for x in range(resource_sizes_count)],
+            [R for R in resource_y_positions][::-1],
+        )
+        plt.ylim(0, resource_sizes_count * resource_height)
+        plt.xlim(0, max([x_ for (T, R, x, x_) in solutions_all if str(R) in resource_y_positions]))
+        fig.figsize = fig_size
+        plt.savefig(img_filename, dpi=200, bbox_inches="tight")
 
 
 class SchedulerImpl(object):
@@ -78,11 +288,12 @@ class SchedulerImpl(object):
                 if succs:
                     succs = unique(succs)
                     worklist.append((succs, nextprio))
-        longest_latency = self._schedule(dfg)
+        longest_latency, scenario = self._schedule(dfg)
         if longest_latency > CALL_MINIMUM_STEP:
             scope.asap_latency = longest_latency
         else:
             scope.asap_latency = CALL_MINIMUM_STEP
+        return scenario
 
     def _set_priority(self, node, prio, dfg):
         if prio > node.priority:
@@ -301,7 +512,7 @@ class BlockBoundedListScheduler(SchedulerImpl):
             latency = self._list_schedule_with_block_bound(dfg, nodes, block, 0)
             if longest_latency < latency:
                 longest_latency = latency
-        return longest_latency
+        return longest_latency, None
 
     def _list_schedule(self, dfg, nodes):
         while True:
@@ -416,6 +627,7 @@ class ResourceRestrictedBlockBoundedListScheduler(SchedulerImpl):
             clock_limit = extected_latency
         block_nodes = self._group_nodes_by_block(dfg)
         total_latency = 0
+        scenarios = []
         for block, node in block_nodes.items():
             max_latency = 0
             self.scheduler = Scenario(block.name, horizon=clock_limit)
@@ -429,7 +641,7 @@ class ResourceRestrictedBlockBoundedListScheduler(SchedulerImpl):
                 match res_name:
                     case "Add" | "Sub" | "Mult" | "Div" | "FloorDiv":
                         res_name = res_name + "er"
-                    case "RShift" | "LShift": 
+                    case "RShift" | "LShift":
                         continue
                     case _:
                         res_name = "func_" + res_name
@@ -483,12 +695,12 @@ class ResourceRestrictedBlockBoundedListScheduler(SchedulerImpl):
             # hide_resources = self.phonys
             hide_tasks = []
             hide_resources = []
-            plotters.matplotlib.plot(
-                self.scheduler,
-                img_filename=save_file_name,
-                hide_tasks=hide_tasks,
-                hide_resources=hide_resources,
-            )
+            # plotters.matplotlib.plot(
+            #     self.scheduler,
+            #     img_filename=save_file_name,
+            #     hide_tasks=hide_tasks,
+            #     hide_resources=hide_resources,
+            # )
             tasks = {str(v): k for k, v in tasks.items()}
             # for task in self.schedule_result[block]:
             #     task_name = task[0]
@@ -515,7 +727,7 @@ class ResourceRestrictedBlockBoundedListScheduler(SchedulerImpl):
             for task in results:
                 if task[0] == "calc_init":
                     continue
-                n = tasks[task[0]] 
+                n = tasks[task[0]]
                 begin = int(task[2]) + first_offset
                 end = int(task[3]) + first_offset
                 res = task[1]
@@ -548,14 +760,20 @@ class ResourceRestrictedBlockBoundedListScheduler(SchedulerImpl):
                 if res_name == "start":
                     continue
                 num = using_resources[res_name]
-                self.res_dict[res_name] = num
+                if res_name in self.res_dict.keys():
+                    self.res_dict[res_name] += num
+                    self.res_dict[res_name] = list(set(self.res_dict[res_name]))
+                else:
+                    self.res_dict[res_name] = num
             self.phonys = []
             self.hide_tasks = []
+            scenarios.append(self.scheduler)
         result_file = open("./scheduling/schedule_result" + self.scope.name + ".txt", "w")
         for res_name, num in self.res_dict.items():
             result_file.write(res_name + ": " + str(len(num)) + "\n")
         result_file.close()
-        return max_latency
+        result_fig_file = "./scheduling/schedule_result" + self.scope.name + ".png"
+        return max_latency, scenarios
 
     def _add_nodes_to_scheduler(self, dfg, nodes, block, resources) -> dict[DFNode, Scenario.Task]:
         print("\nblock: " + block.name)
@@ -663,9 +881,11 @@ class ResourceRestrictedBlockBoundedListScheduler(SchedulerImpl):
             else:
                 self.scheduler += start + n.priority < tasks[n]
                 print("start + " + str(n.priority) + " < " + tasks[n].name)
-            succs = dfg.succs_typ_without_back(n, "DefUse") + dfg.preds_typ_without_back(
-                n, "UseDef"
-            ) + dfg.succs_typ_without_back(n, "Seq")
+            succs = (
+                dfg.succs_typ_without_back(n, "DefUse")
+                + dfg.preds_typ_without_back(n, "UseDef")
+                + dfg.succs_typ_without_back(n, "Seq")
+            )
             succs = utils.unique(succs)
             distance = 1
             task_pair = {}

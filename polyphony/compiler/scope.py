@@ -241,8 +241,8 @@ class Scope(Tagged):
             if res_name not in self.res_dict.keys():
                 self.res_dict[res_name] = num
             else:
-                num = max(num, self.res_dict[res_name])
-                self.res_dict[res_name] = num
+                self.res_dict[res_name] += num
+                self.res_dict[res_name] = list(set(self.res_dict[res_name]))
 
     def clone_symbols(self, scope, postfix=''):
         symbol_map = {}
