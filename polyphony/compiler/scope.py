@@ -146,8 +146,19 @@ class Scope(Tagged):
     def is_unremovable(cls, s):
         return s.is_instantiated() or (s.parent and s.parent.is_instantiated())
     
+    def is_inline(self):
+        # if self.is_main():
+        #     return False
+        # elif "inline" in self.synth_params.keys():
+        #     return self.synth_params["inline"]
+        # elif "is_default" in self.synth_params.keys():
+        #     return True
+        # else:
+        #     return False
+        return False
+    
     def is_verilog(self):
-        return self.parent is not None and (re.match(r"complex*", self.parent.name) or re.match(r"list*", self.parent.name))
+        return self.parent is not None and (re.match(r"complex*", self.parent.name) or re.match(r"list*", self.parent.name)) and not self.is_inline()
     
     def is_main(self):
         return self.name == self.main_name

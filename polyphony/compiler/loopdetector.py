@@ -1,6 +1,7 @@
 ﻿from .ir import CONST, RELOP, TEMP, MOVE, CJUMP, PHIBase, LPHI
 from .loop import Region, Loop
 from logging import getLogger
+import inspect
 logger = getLogger(__name__)
 
 
@@ -137,6 +138,7 @@ class LoopInfoSetter(object):
         counter_def = list(defs)[0]
         counter_def.is_a(PHIBase)
         assert len(counter_def.args) == 2
+        print(counter_def.args)
         loop.init = counter_def.args[0]
         loop.update = counter_def.args[1]
         loop.exits = []

@@ -13,7 +13,7 @@ class Config(object):
     enable_pure = True
     synth_params: dict[str, str | dict[str, int]] = {}
     scheduler_params: dict[str, str | bool] = {
-        "sovler": "cbc",
+        "solver": "cp",
         "msg": False,
     }
 

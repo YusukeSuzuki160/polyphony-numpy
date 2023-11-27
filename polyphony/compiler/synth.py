@@ -19,7 +19,7 @@ class DefaultSynthParamSetter(object):
         'scheduling':'parallel',
         'cycle':'minimum',
         "resource":"free",
-        "solver":"mip",
+        "solver":"cp",
         'ii':1,
     }
     scope_params = {
@@ -27,8 +27,9 @@ class DefaultSynthParamSetter(object):
         'cycle':'minimum',
         # "resource": {"Add": 2},
         "resource":"free",
-        "solver":"mip",
+        "solver":"cp",
         'ii':-1,
+        'is_default': True
     }
 
     def process(self, scope):
@@ -51,6 +52,8 @@ def make_synth_params():
     di['cycle'] = ''
     di['resource'] = ''
     di['ii'] = 0
+    di['solver'] = ''
+    di['is_default'] = True
     return di
 
 

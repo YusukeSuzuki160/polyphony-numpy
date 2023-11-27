@@ -1,4 +1,5 @@
 from .graph import Graph
+import inspect
 
 
 class Region(object):

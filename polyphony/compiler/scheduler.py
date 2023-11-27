@@ -655,6 +655,7 @@ class ResourceRestrictedBlockBoundedListScheduler(SchedulerImpl):
                     n.begin = sched_time
                     n.end = n.begin + latency
                 # print(dfg)
+                self._remove_alias_if_needed(dfg)
                 continue
             resources["start"] = self.scheduler.Resources("init_sym", num=1)
             tasks, first_prio = self._add_nodes_to_scheduler(dfg, node, block, resources)
@@ -723,7 +724,8 @@ class ResourceRestrictedBlockBoundedListScheduler(SchedulerImpl):
                 if n.priority < min_prio:
                     min_prio = n.priority
                     first = n
-            first_offset = self._node_sched_with_block_bound(dfg, first, block)
+            # first_offset = self._node_sched_with_block_bound(dfg, first, block)
+            first_offset = 0
             for task in results:
                 if task[0] == "calc_init":
                     continue
@@ -753,6 +755,7 @@ class ResourceRestrictedBlockBoundedListScheduler(SchedulerImpl):
                 # print("begin: " + str(n.begin))
                 # print("end: " + str(n.end))
             # print(dfg)
+            # self._remove_alias_if_needed(dfg)
             total_latency += max_latency
             # print(using_resources)
             for res_name, res in resources.items():
@@ -870,50 +873,60 @@ class ResourceRestrictedBlockBoundedListScheduler(SchedulerImpl):
             tasks[n] = task
             node_num += 1
         for n in sorted(nodes, key=lambda n: (n.priority, n.stm_index)):
+            _, _, latency = self.node_latency_map[n]
+            sched_time = self._node_sched_with_block_bound(dfg, n, block)
+            n.begin = sched_time
+            n.end = n.begin + latency
+        for n in sorted(nodes, key=lambda n: (n.priority, n.stm_index)):
             if n.tag.block is not block:
                 continue
             if n not in tasks.keys():
                 continue
             visited = [n]
-            if n.priority == 0:
+            start_time = self._node_sched_with_block_bound(dfg, n, block)
+            if start_time == 0:
                 self.scheduler += start < tasks[n]
                 print("start < " + tasks[n].name)
             else:
-                self.scheduler += start + n.priority < tasks[n]
-                print("start + " + str(n.priority) + " < " + tasks[n].name)
+                self.scheduler += start + start_time < tasks[n]
+                print("start + " + str(start_time) + " < " + tasks[n].name)
             succs = (
                 dfg.succs_typ_without_back(n, "DefUse")
                 + dfg.preds_typ_without_back(n, "UseDef")
                 + dfg.succs_typ_without_back(n, "Seq")
             )
             succs = utils.unique(succs)
-            distance = 1
             task_pair = {}
-            while succs:
+            succ_stack = []
+            for succ in succs:
+                _, _, latency = self.node_latency_map[succ]
+                succ_stack.append((succ, latency))
+            while succ_stack:
                 next_succs = []
-                for succ in succs:
-                    if succ in visited:
-                        continue
-                    if succ not in tasks.keys():
-                        visited.append(succ)
-                        next_succs += dfg.succs_typ_without_back(succ, "DefUse")
-                        next_succs += dfg.preds_typ_without_back(succ, "UseDef")
-                        next_succs += dfg.succs_typ_without_back(succ, "Seq")
-                        next_succs = utils.unique(next_succs)
-                        continue
+                succ, distance = succ_stack.pop()
+                if succ.priority <= n.priority:
+                    continue
+                if succ in visited:
+                    continue
+                if succ not in tasks.keys():
+                    visited.append(succ)
+                    next_succs += dfg.succs_typ_without_back(succ, "DefUse")
+                    next_succs += dfg.preds_typ_without_back(succ, "UseDef")
+                    next_succs += dfg.succs_typ_without_back(succ, "Seq")
+                    next_succs = utils.unique(next_succs)
+                    if next_succs:
+                        for next_succ in next_succs:
+                            _, _, latency = self.node_latency_map[next_succ]
+                            next_succ_stack = (next_succ, latency + distance)
+                            succ_stack.append(next_succ_stack)
+                else:
                     succ_task = tasks[succ]
-                    if succ.priority <= n.priority:
-                        continue
                     pair = (tasks[n], succ_task)
                     if pair not in task_pair.keys():
                         task_pair[pair] = distance
                     else:
                         task_pair[pair] = max(task_pair[pair], distance)
-                if next_succs:
-                    succs = next_succs
-                    distance += 1
-                else:
-                    break
+                        distance = task_pair[pair]
             for pair, distance in task_pair.items():
                 self.scheduler += pair[0] + distance < pair[1]
                 print(pair[0].name + " + " + str(distance) + " < " + pair[1].name)
