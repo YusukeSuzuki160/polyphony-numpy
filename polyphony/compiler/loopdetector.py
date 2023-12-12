@@ -138,7 +138,7 @@ class LoopInfoSetter(object):
         counter_def = list(defs)[0]
         counter_def.is_a(PHIBase)
         assert len(counter_def.args) == 2
-        print(counter_def.args)
+        # print(counter_def.args)
         loop.init = counter_def.args[0]
         loop.update = counter_def.args[1]
         loop.exits = []

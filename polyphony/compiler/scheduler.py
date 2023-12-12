@@ -35,6 +35,7 @@ class Scheduler(object):
             return
         self.scope = scope
         scenarios = []
+        res_dicts = {}
         for dfg in self.scope.dfgs(bottom_up=True):
             if dfg.parent and dfg.synth_params["scheduling"] == "pipeline":
                 scheduler_impl = PipelineScheduler()
@@ -53,6 +54,10 @@ class Scheduler(object):
             self.plot_result(
                 scenarios, "./scheduling/schedule_result" + scope.name + ".png", scope.name
             )
+        result_file = open("./scheduling/schedule_result" + self.scope.name + ".txt", "w")
+        for res_name, num in scope.res_dict.items():
+            result_file.write(res_name + ": " + str(len(num)) + "\n")
+        result_file.close()
 
     def plot_result(
         self,
@@ -743,21 +748,34 @@ class ResourceRestrictedBlockBoundedListScheduler(SchedulerImpl):
                     up_priorities.append(priority)
                 self._add_node_to_res_table(n, begin + 1, end + 1, res, using_resources)
                 self._apply_schedule_result(dfg, n, begin, end, tasks, visited)
-            self._remove_alias_if_needed(dfg)
-            for n in node:
+            # self._remove_alias_if_needed(dfg)
+            current_under_time = 0
+            current_upper_time = 0
+            current_prio = 0
+            for n in sorted(node, key=lambda n: (n.priority, n.stm_index)):
                 if n not in visited:
                     visited.append(n)
-                    _, _, latency = self.node_latency_map[n]
-                    shceduled_time = self._node_sched_with_block_bound(dfg, n, block)
-                    n.begin = shceduled_time
+                    latency, _, _ = self.node_latency_map[n]
+                    scheduled_time = self._node_sched_with_block_bound(dfg, n, block)
+                    scheduled_time = max(scheduled_time, current_under_time)
+                    if current_prio != n.priority:
+                        current_prio = n.priority
+                        current_under_time = current_upper_time
+                    else:
+                        current_under_time = scheduled_time
+                    n.begin = scheduled_time
                     n.end = n.begin + latency
-                # print("\nnode: " + str(n))
-                # print("begin: " + str(n.begin))
-                # print("end: " + str(n.end))
+            # print("stms after: ")
+            # for i, n in enumerate(sorted(node, key=lambda n: (n.priority, n.stm_index))):
+            #     if n in tasks.keys():
+            #         print(str(i) + ": " + str(n), ": ", tasks[n])
+            #     else:
+            #         print(str(i) + ": " + str(n))
             # print(dfg)
             # self._remove_alias_if_needed(dfg)
             total_latency += max_latency
             # print(using_resources)
+            # print("resources", resources.keys())
             for res_name, res in resources.items():
                 res_name = res_name if isinstance(res_name, str) else res_name.name
                 if res_name == "start":
@@ -771,11 +789,6 @@ class ResourceRestrictedBlockBoundedListScheduler(SchedulerImpl):
             self.phonys = []
             self.hide_tasks = []
             scenarios.append(self.scheduler)
-        result_file = open("./scheduling/schedule_result" + self.scope.name + ".txt", "w")
-        for res_name, num in self.res_dict.items():
-            result_file.write(res_name + ": " + str(len(num)) + "\n")
-        result_file.close()
-        result_fig_file = "./scheduling/schedule_result" + self.scope.name + ".png"
         return max_latency, scenarios
 
     def _add_nodes_to_scheduler(self, dfg, nodes, block, resources) -> dict[DFNode, Scenario.Task]:
@@ -784,6 +797,7 @@ class ResourceRestrictedBlockBoundedListScheduler(SchedulerImpl):
         node_num = 0
         first_prio = 0
         is_first = True
+        max_priority = max([n.priority for n in nodes])
         start = self.scheduler.Task("calc_init", length=0, delay_cost=1)
         start += resources["start"]
         for n in sorted(nodes, key=lambda n: (n.priority, n.stm_index)):
@@ -801,7 +815,9 @@ class ResourceRestrictedBlockBoundedListScheduler(SchedulerImpl):
                     "FloorDiv",
                 ):
                     op = n.tag.src.op
-                    task = self.scheduler.Task(op + str(node_num), length=latency, delay_cost=1)
+                    task = self.scheduler.Task(
+                        op + str(node_num), length=latency, delay_cost=max_priority - n.priority + 1
+                    )
                     task += alt(resources[op])
                     # result_task = self.scheduler.Task(
                     #     "result" + str(node_num), length=1, delay_cost=1
@@ -821,7 +837,9 @@ class ResourceRestrictedBlockBoundedListScheduler(SchedulerImpl):
                 elif n.tag.src.is_a(CALL):
                     func = n.tag.src.func_scope()
                     task = self.scheduler.Task(
-                        func.name + str(node_num), length=latency, delay_cost=1
+                        func.name + str(node_num),
+                        length=latency,
+                        delay_cost=max_priority - n.priority + 1,
                     )
                     task += alt(resources[func.name])
                     if is_first:
@@ -843,7 +861,7 @@ class ResourceRestrictedBlockBoundedListScheduler(SchedulerImpl):
                     task = self.scheduler.Task(
                         n.tag.exp.func_scope().name + str(node_num),
                         length=latency,
-                        delay_cost=1,
+                        delay_cost=max_priority - n.priority + 1,
                     )
                     func = n.tag.exp.func_scope()
                     task += alt(resources[func.name])
@@ -886,10 +904,10 @@ class ResourceRestrictedBlockBoundedListScheduler(SchedulerImpl):
             start_time = self._node_sched_with_block_bound(dfg, n, block)
             if start_time == 0:
                 self.scheduler += start < tasks[n]
-                print("start < " + tasks[n].name)
+                # print("start < " + tasks[n].name)
             else:
                 self.scheduler += start + start_time < tasks[n]
-                print("start + " + str(start_time) + " < " + tasks[n].name)
+                # print("start + " + str(start_time) + " < " + tasks[n].name)
             succs = (
                 dfg.succs_typ_without_back(n, "DefUse")
                 + dfg.preds_typ_without_back(n, "UseDef")
@@ -929,13 +947,13 @@ class ResourceRestrictedBlockBoundedListScheduler(SchedulerImpl):
                         distance = task_pair[pair]
             for pair, distance in task_pair.items():
                 self.scheduler += pair[0] + distance < pair[1]
-                print(pair[0].name + " + " + str(distance) + " < " + pair[1].name)
-        print("stms: ")
-        for i, n in enumerate(sorted(nodes, key=lambda n: (n.priority, n.stm_index))):
-            if n in tasks.keys():
-                print(str(i) + ": " + str(n), ": ", tasks[n])
-            else:
-                print(str(i) + ": " + str(n))
+                # print(pair[0].name + " + " + str(distance) + " < " + pair[1].name)
+        # print("stms before: ")
+        # for i, n in enumerate(sorted(nodes, key=lambda n: (n.priority, n.stm_index))):
+        #     if n in tasks.keys():
+        #         print(str(i) + ": " + str(n), ": ", tasks[n])
+        #     else:
+        #         print(str(i) + ": " + str(n))
         print("node num: " + str(node_num))
         tasks = {k: v[0] if isinstance(v, tuple) else v for k, v in tasks.items()}
         return tasks, first_prio

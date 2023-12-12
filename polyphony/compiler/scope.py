@@ -155,7 +155,7 @@ class Scope(Tagged):
         #     return True
         # else:
         #     return False
-        return False
+        return True
     
     def is_verilog(self):
         return self.parent is not None and (re.match(r"complex*", self.parent.name) or re.match(r"list*", self.parent.name)) and not self.is_inline()
