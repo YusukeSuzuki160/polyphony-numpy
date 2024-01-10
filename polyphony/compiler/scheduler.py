@@ -50,6 +50,8 @@ class Scheduler(object):
             if scenario:
                 scenarios += scenario
             scope.append_res_dict(scheduler_impl.res_dict)
+            scope.append_bit_dict(scheduler_impl.bit_dict)
+            scope.result_vars += scheduler_impl.result_vars
         if scenarios != []:
             self.plot_result(
                 scenarios, "./scheduling/schedule_result" + scope.name + ".png", scope.name
@@ -270,6 +272,8 @@ class SchedulerImpl(object):
         self.all_paths = []
         self.res_extractor = None
         self.res_dict = {}
+        self.bit_dict = {}
+        self.result_vars = []
 
     def schedule(self, scope, dfg):
         self.scope = scope
@@ -413,10 +417,10 @@ class SchedulerImpl(object):
                         var = (
                             node.tag.dst.symbol() if node.tag.is_a(MOVE) else node.tag.var.symbol()
                         )
-                        if var.is_condition():
-                            self.node_latency_map[node] = (0, 0, 0)
-                        else:
-                            self.node_latency_map[node] = (1, 0, 1)
+                        # if var.is_condition():
+                        #     self.node_latency_map[node] = (0, 0, 0)
+                        # else:
+                        self.node_latency_map[node] = (1, 0, 1)
                     else:
                         self.node_latency_map[node] = (0, 0, 0)
             else:
@@ -615,7 +619,6 @@ class ResourceRestrictedBlockBoundedListScheduler(SchedulerImpl):
         self.resources = resources
         self.scheduler = None
         self.schedule_result = {}
-        self.res_dict = {}
         self.phonys = []
         self.hide_tasks = []
 
@@ -644,7 +647,7 @@ class ResourceRestrictedBlockBoundedListScheduler(SchedulerImpl):
                 if res_name in self.resources:
                     num = self.resources[res]
                 match res_name:
-                    case "Add" | "Sub" | "Mult" | "Div" | "FloorDiv":
+                    case "Add" | "Sub" | "Mult" | "Div" | "FloorDiv" | "Mod" | "BitOr" | "BitAnd" | "BitXor" | "And" | "Or" | "Eq" | "NotEq" | "Lt" | "LtE" | "Gt" | "GtE":
                         res_name = res_name + "er"
                     case "RShift" | "LShift":
                         continue
@@ -659,11 +662,10 @@ class ResourceRestrictedBlockBoundedListScheduler(SchedulerImpl):
                     sched_time = self._node_sched_with_block_bound(dfg, n, block)
                     n.begin = sched_time
                     n.end = n.begin + latency
-                # print(dfg)
                 self._remove_alias_if_needed(dfg)
                 continue
             resources["start"] = self.scheduler.Resources("init_sym", num=1)
-            tasks, first_prio = self._add_nodes_to_scheduler(dfg, node, block, resources)
+            tasks = self._add_nodes_to_scheduler(dfg, node, block, resources)
             if "solver" in dfg.synth_params:
                 solver = dfg.synth_params["solver"]
             else:
@@ -720,7 +722,6 @@ class ResourceRestrictedBlockBoundedListScheduler(SchedulerImpl):
             #     self._add_node_to_res_table(node, begin, end, res)
             #     self._remove_alias_if_needed(dfg)
             visited = []
-            # print(dfg)
             up_priorities = []
             using_resources = {}
             first = node[0]
@@ -731,6 +732,30 @@ class ResourceRestrictedBlockBoundedListScheduler(SchedulerImpl):
                     first = n
             # first_offset = self._node_sched_with_block_bound(dfg, first, block)
             first_offset = 0
+            for task in results:
+                if task[0] == "calc_init":
+                    continue
+                n = tasks[task[0]]
+                res_num = n.instance_num
+                if isinstance(n.tag.src.left, TEMP):
+                    left_width = n.tag.src.left.sym.typ.get_width()
+                else:
+                    left_width = env.config.default_int_width
+                if isinstance(n.tag.src.right, TEMP):
+                    right_width = n.tag.src.right.sym.typ.get_width()
+                else:
+                    right_width = env.config.default_int_width
+                op = n.tag.src.op
+                left_name = str(op) + "_" + str(res_num) + "_left"
+                right_name = str(op) + "_" + str(res_num) + "_right"
+                if left_name not in self.bit_dict.keys():
+                    self.bit_dict[left_name] = left_width
+                else:
+                    self.bit_dict[left_name] = max(self.bit_dict[left_name], left_width)
+                if right_name not in self.bit_dict.keys():
+                    self.bit_dict[right_name] = right_width
+                else:
+                    self.bit_dict[right_name] = max(self.bit_dict[right_name], right_width)
             for task in results:
                 if task[0] == "calc_init":
                     continue
@@ -749,33 +774,18 @@ class ResourceRestrictedBlockBoundedListScheduler(SchedulerImpl):
                 self._add_node_to_res_table(n, begin + 1, end + 1, res, using_resources)
                 self._apply_schedule_result(dfg, n, begin, end, tasks, visited)
             # self._remove_alias_if_needed(dfg)
-            current_under_time = 0
-            current_upper_time = 0
-            current_prio = 0
             for n in sorted(node, key=lambda n: (n.priority, n.stm_index)):
                 if n not in visited:
                     visited.append(n)
                     latency, _, _ = self.node_latency_map[n]
                     scheduled_time = self._node_sched_with_block_bound(dfg, n, block)
-                    scheduled_time = max(scheduled_time, current_under_time)
-                    if current_prio != n.priority:
-                        current_prio = n.priority
-                        current_under_time = current_upper_time
-                    else:
-                        current_under_time = scheduled_time
                     n.begin = scheduled_time
                     n.end = n.begin + latency
-            # print("stms after: ")
-            # for i, n in enumerate(sorted(node, key=lambda n: (n.priority, n.stm_index))):
-            #     if n in tasks.keys():
-            #         print(str(i) + ": " + str(n), ": ", tasks[n])
-            #     else:
-            #         print(str(i) + ": " + str(n))
-            # print(dfg)
             # self._remove_alias_if_needed(dfg)
             total_latency += max_latency
             # print(using_resources)
             # print("resources", resources.keys())
+            # print(dfg)
             for res_name, res in resources.items():
                 res_name = res_name if isinstance(res_name, str) else res_name.name
                 if res_name == "start":
@@ -794,8 +804,8 @@ class ResourceRestrictedBlockBoundedListScheduler(SchedulerImpl):
     def _add_nodes_to_scheduler(self, dfg, nodes, block, resources) -> dict[DFNode, Scenario.Task]:
         print("\nblock: " + block.name)
         tasks = {}
+        node_dict = {}
         node_num = 0
-        first_prio = 0
         is_first = True
         max_priority = max([n.priority for n in nodes])
         start = self.scheduler.Task("calc_init", length=0, delay_cost=1)
@@ -807,12 +817,24 @@ class ResourceRestrictedBlockBoundedListScheduler(SchedulerImpl):
             # if latency == 0:
             #     continue
             if n.tag.is_a(MOVE):
-                if n.tag.src.is_a([BINOP, UNOP]) and n.tag.src.op in (
+                if n.tag.src.is_a([BINOP]) and n.tag.src.op in (
                     "Add",
                     "Sub",
                     "Mult",
                     "Div",
                     "FloorDiv",
+                    "Mod",
+                    "BitOr",
+                    "BitAnd",
+                    "BitXor",
+                    "And",
+                    "Or",
+                    "Eq",
+                    "NotEq",
+                    "Lt",
+                    "LtE",
+                    "Gt",
+                    "GtE",
                 ):
                     op = n.tag.src.op
                     task = self.scheduler.Task(
@@ -831,9 +853,6 @@ class ResourceRestrictedBlockBoundedListScheduler(SchedulerImpl):
                     # self.scheduler += task < result_task
                     # task = (task, result_task)
                     # self.hide_tasks.append(result_task)
-                    if is_first:
-                        first_prio = n.priority
-                        is_first = False
                 elif n.tag.src.is_a(CALL):
                     func = n.tag.src.func_scope()
                     task = self.scheduler.Task(
@@ -842,9 +861,6 @@ class ResourceRestrictedBlockBoundedListScheduler(SchedulerImpl):
                         delay_cost=max_priority - n.priority + 1,
                     )
                     task += alt(resources[func.name])
-                    if is_first:
-                        first_prio = n.priority
-                        is_first = False
                 else:
                     # task = self.scheduler.Task(
                     #     "other" + str(node_num), length=latency, delay_cost=1
@@ -889,6 +905,7 @@ class ResourceRestrictedBlockBoundedListScheduler(SchedulerImpl):
                 # self.phonys.append(phony[0])
                 continue
             tasks[n] = task
+            node_dict[task] = n
             node_num += 1
         for n in sorted(nodes, key=lambda n: (n.priority, n.stm_index)):
             _, _, latency = self.node_latency_map[n]
@@ -943,7 +960,7 @@ class ResourceRestrictedBlockBoundedListScheduler(SchedulerImpl):
                     if pair not in task_pair.keys():
                         task_pair[pair] = distance
                     else:
-                        task_pair[pair] = max(task_pair[pair], distance)
+                        task_pair[pair] = min(task_pair[pair], distance)
                         distance = task_pair[pair]
             for pair, distance in task_pair.items():
                 self.scheduler += pair[0] + distance < pair[1]
@@ -956,7 +973,7 @@ class ResourceRestrictedBlockBoundedListScheduler(SchedulerImpl):
         #         print(str(i) + ": " + str(n))
         print("node num: " + str(node_num))
         tasks = {k: v[0] if isinstance(v, tuple) else v for k, v in tasks.items()}
-        return tasks, first_prio
+        return tasks
 
     def _add_node_to_res_table(self, node, begin, end, res, using):
         resource_name = re.match(r"^(.*?)(\d+)$", res)
@@ -964,8 +981,6 @@ class ResourceRestrictedBlockBoundedListScheduler(SchedulerImpl):
             instance_num = int(resource_name.group(2))
             resource_name = resource_name.group(1)
         else:
-            return
-        if resource_name.startswith("phony_"):
             return
         if resource_name.endswith("er"):
             resource_name = resource_name[:-2]
@@ -987,7 +1002,7 @@ class ResourceRestrictedBlockBoundedListScheduler(SchedulerImpl):
 
     def _apply_schedule_result(self, dfg, node, begin, end, tasks, visited):
         visited.append(node)
-        if node.tag.is_a(MOVE) and node.tag.src.is_a(BINOP):
+        if node.tag.is_a(MOVE) and node.tag.src.is_a([BINOP, UNOP, RELOP]):
             op = node.tag.src.op
             stm_index = node.stm_index
             scope = dfg.scope
@@ -1002,24 +1017,30 @@ class ResourceRestrictedBlockBoundedListScheduler(SchedulerImpl):
             if isinstance(node.tag.src.left, TEMP):
                 left_typ = node.tag.src.left.sym.typ
                 tags = node.tag.src.left.sym.tags
-                left = TEMP(Symbol(left_name, tags=tags, scope=scope, typ=left_typ), Ctx.LOAD)
                 left_init = TEMP(Symbol(left_name, tags=tags, scope=scope, typ=left_typ), Ctx.STORE)
             elif isinstance(node.tag.src.left, CONST):
-                left = node.tag.src.left
                 left_init = TEMP(
                     Symbol(left_name, tags=default_tags, scope=scope, typ=int_type), Ctx.STORE
                 )
+            elif isinstance(node.tag.src.left, UNOP):
+                left_typ = node.tag.src.left.exp.sym.typ
+                tags = node.tag.src.left.exp.sym.tags
+                left_init = TEMP(Symbol(left_name, tags=tags, scope=scope, typ=left_typ), Ctx.STORE)
             if isinstance(node.tag.src.right, TEMP):
                 right_typ = node.tag.src.right.sym.typ
                 tags = node.tag.src.right.sym.tags
-                right = TEMP(Symbol(right_name, tags=tags, scope=scope, typ=right_typ), Ctx.LOAD)
                 right_init = TEMP(
                     Symbol(right_name, tags=tags, scope=scope, typ=right_typ), Ctx.STORE
                 )
             elif isinstance(node.tag.src.right, CONST):
-                right = node.tag.src.right
                 right_init = TEMP(
                     Symbol(right_name, tags=default_tags, scope=scope, typ=int_type), Ctx.STORE
+                )
+            elif isinstance(node.tag.src.right, UNOP):
+                right_typ = node.tag.src.right.exp.sym.typ
+                tags = node.tag.src.right.exp.sym.tags
+                right_init = TEMP(
+                    Symbol(right_name, tags=tags, scope=scope, typ=right_typ), Ctx.STORE
                 )
             node_succ = dfg.succ_edges[node]
             node_pred = dfg.pred_edges[node]
@@ -1035,10 +1056,25 @@ class ResourceRestrictedBlockBoundedListScheduler(SchedulerImpl):
             dfg.remove_node(node)
             if node in dfg.src_nodes:
                 dfg.src_nodes.remove(node)
-            calc_node = BINOP(op, left, right)
+            # if op in ("Add", "Sub", "Mult", "Div", "FloorDiv", "Mod", "BitOr", "BitAnd", "BitXor"):
+            #     calc_node = BINOP(op, left, right)
+            # elif op in ("And", "Or", "Eq", "NotEq", "Lt", "LtE", "Gt", "GtE"):
+            #     calc_node = RELOP(op, left, right)
+            calc_result_name = str(op) + "_" + str(node.instance_num) + "_result"
+            calc_result_sym = Symbol(calc_result_name, tags=default_tags, scope=scope, typ=int_type)
+            calc_result_sym.add_tag("alias")
+            calc_node = TEMP(calc_result_sym, Ctx.LOAD)
+            # node.tag.dst.sym.add_tag("alias")
             calc_node = MOVE(node.tag.dst, calc_node, loc=Loc(filename, lineno))
+            left_init.sym.del_tag("alias")
+            right_init.sym.del_tag("alias")
             init_left = MOVE(left_init, node.tag.src.left, loc=Loc(filename, lineno))
             init_right = MOVE(right_init, node.tag.src.right, loc=Loc(filename, lineno))
+            dst_name = node.tag.dst.sym.name
+            if dst_name.startswith("@"):
+                dst_name = dst_name[1:]
+            dst_name = dst_name.replace("#", "")
+            self.result_vars.append(dst_name)
             # print("\nbefore")
             # print(stm_index)
             # print(str(node))
@@ -1068,17 +1104,18 @@ class ResourceRestrictedBlockBoundedListScheduler(SchedulerImpl):
             init_left.end = begin + 1
             init_right.begin = begin
             init_right.end = begin + 1
-            calc_node.begin = begin + 1
-            calc_node.end = end + 1
+            calc_node.begin = begin
+            calc_node.end = begin + 1
             init_left.priority = priority
             init_right.priority = priority
             calc_node.priority = priority + 1
             calc_node.instance_num = node.instance_num
-            end = end + 1
+            # end = end + 1
             dfg.add_defuse_edge(init_left, calc_node)
             dfg.add_defuse_edge(init_right, calc_node)
             self.node_latency_map[init_left] = (1, 1, 1)
             self.node_latency_map[init_right] = (1, 1, 1)
+            self.node_latency_map[calc_node] = (0, 0, 0)
             if removes != []:
                 for n1, n2, typ in removes:
                     if n1 == node:
@@ -1474,6 +1511,10 @@ class ResourceExtractor(IRVisitor):
         self.ops[self.current_node][ir.op] += 1
         super().visit_BINOP(ir)
 
+    # def visit_RELOP(self, ir):
+    #     self.ops[self.current_node][ir.op] += 1
+    #     super().visit_RELOP(ir)
+
     def visit_CALL(self, ir):
         self.ops[self.current_node][ir.func_scope()] += 1
         func_name = ir.func_scope().name
@@ -1481,6 +1522,9 @@ class ResourceExtractor(IRVisitor):
             inst_ = ir.func.tail()
             self.ports[self.current_node].append(inst_)
         super().visit_CALL(ir)
+    
+    def visit_PHI(self, ir):
+        pass
 
     def visit_MREF(self, ir):
         if ir.mem.symbol().typ.get_memnode().can_be_reg():

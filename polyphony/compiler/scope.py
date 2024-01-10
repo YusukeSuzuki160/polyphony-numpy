@@ -155,10 +155,12 @@ class Scope(Tagged):
         #     return True
         # else:
         #     return False
+        if self.parent is not None and re.match(r"div*", self.parent.name):
+            return False
         return True
     
     def is_verilog(self):
-        return self.parent is not None and (re.match(r"complex*", self.parent.name) or re.match(r"list*", self.parent.name)) and not self.is_inline()
+        return self.parent is not None and (re.match(r"complex*", self.parent.name) or re.match(r"list*", self.parent.name) or re.match(r"div*", self.parent.name)) and not self.is_inline()
     
     def is_main(self):
         return self.name == self.main_name
@@ -202,6 +204,8 @@ class Scope(Tagged):
         self.res_dict = {}
         self.main_name = main_name
         self.resource_restrict = False
+        self.bit_dict = {}
+        self.result_vars = []
 
     def __str__(self):
         s = '\n================================\n'
@@ -246,7 +250,7 @@ class Scope(Tagged):
             return False
         elif self.order == other.order:
             return self.lineno < other.lineno
-        
+
     def append_res_dict(self, res_dict):
         for res_name, num in res_dict.items():
             if res_name not in self.res_dict.keys():
@@ -254,6 +258,13 @@ class Scope(Tagged):
             else:
                 self.res_dict[res_name] += num
                 self.res_dict[res_name] = list(set(self.res_dict[res_name]))
+
+    def append_bit_dict(self, bit_dict):
+        for var_name, bit in bit_dict.items():
+            if var_name not in self.bit_dict.keys():
+                self.bit_dict[var_name] = bit
+            else:
+                self.bit_dict[var_name] = max(self.bit_dict[var_name], bit)
 
     def clone_symbols(self, scope, postfix=''):
         symbol_map = {}
