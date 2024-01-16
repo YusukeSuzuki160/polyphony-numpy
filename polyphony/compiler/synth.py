@@ -11,7 +11,7 @@ class DefaultSynthParamSetter(object):
 # 2. resource = {'Add': 1, 'Sub': 1}
 #    - resource is specified
 #   - resource is fundamental operation
-# 3. resource = {'Add': 1, 'Sub': 1, 'Mul': 1, 'listc3r3_add': 1}
+# 3. resource = {'Add': 1, 'Sub': 1, 'Mult': 1, 'listc3r3_add': 1}
 #    - resource is specified
 #   - resource contains fundamental operation and function
 

@@ -24,6 +24,7 @@ from .env import env
 logger = getLogger(__name__)
 
 MAX_FUNC_UNIT = 100
+MAX_LATENCY = 4
 
 
 class Scheduler(object):
@@ -36,6 +37,8 @@ class Scheduler(object):
         self.scope = scope
         scenarios = []
         res_dicts = {}
+        critical_path = []
+        critical_path_latency = 0
         for dfg in self.scope.dfgs(bottom_up=True):
             if dfg.parent and dfg.synth_params["scheduling"] == "pipeline":
                 scheduler_impl = PipelineScheduler()
@@ -52,6 +55,11 @@ class Scheduler(object):
             scope.append_res_dict(scheduler_impl.res_dict)
             scope.append_bit_dict(scheduler_impl.bit_dict)
             scope.result_vars += scheduler_impl.result_vars
+            critival_path_analyzer = CriticalPathAnalyzer(dfg)
+            path, latency, _ = critival_path_analyzer.analyze()
+            if critical_path_latency <= latency:
+                critical_path = path
+                critical_path_latency = latency
         if scenarios != []:
             self.plot_result(
                 scenarios, "./scheduling/schedule_result" + scope.name + ".png", scope.name
@@ -60,6 +68,11 @@ class Scheduler(object):
         for res_name, num in scope.res_dict.items():
             result_file.write(res_name + ": " + str(len(num)) + "\n")
         result_file.close()
+        critical_path_file = open("./scheduling/critical_path" + self.scope.name + ".txt", "w")
+        critical_path_file.write("critical path latency: " + str(critical_path_latency) + "\n")
+        for node in critical_path:
+            critical_path_file.write(str(node) + "\n")
+        critical_path_file.close()
 
     def plot_result(
         self,
@@ -518,9 +531,67 @@ class BlockBoundedListScheduler(SchedulerImpl):
         longest_latency = 0
         for block, nodes in block_nodes.items():
             # latency = self._list_schedule(dfg, nodes)
+            print("Block: " + block.name)
+            for node in nodes:
+                print(node)
             latency = self._list_schedule_with_block_bound(dfg, nodes, block, 0)
             if longest_latency < latency:
                 longest_latency = latency
+            critical_path_analyzer = CriticalPathAnalyzer(dfg)
+            critical_path, critical_path_latency, split_points = critical_path_analyzer.analyze()
+        print("\ndfg before split")
+        print(dfg)
+        while critical_path_latency > MAX_LATENCY:
+            stage = 0
+            split_point = split_points[stage]
+            for i, node in enumerate(critical_path):
+                if i == split_point:
+                    if node.begin == node.end:
+                        node.begin += stage
+                        node.end += stage + 1
+                        self.node_latency_map[node] = (1, 0, 1)
+                    else:
+                        node.begin += stage
+                        node.end += stage
+                    stage += 1
+                    if stage == len(split_points):
+                        split_points = len(critical_path)
+                    else:
+                        split_point = split_points[stage]
+                else:
+                    node.begin += stage
+                    node.end += stage
+            succs = []
+            for node in critical_path:
+                succ = (
+                    dfg.succs_typ_without_back(node, "DefUse")
+                    + dfg.preds_typ_without_back(node, "UseDef")
+                    + dfg.succs_typ_without_back(node, "Seq")
+                )
+                succs += succ
+            succs = utils.unique(succs)
+            visited = critical_path
+            while succs:
+                nodes = succs
+                succs = []
+                for n in sorted(nodes, key=lambda n: (n.priority, n.stm_index)):
+                    if n in visited:
+                        continue
+                    visited.append(n)
+                    succ = (
+                        dfg.succs_typ_without_back(n, "DefUse")
+                        + dfg.preds_typ_without_back(n, "UseDef")
+                        + dfg.succs_typ_without_back(n, "Seq")
+                    )
+                    succs += succ
+                    n.begin += stage
+                    n.end += stage
+                succs = utils.unique(succs)
+            self._remove_alias_if_needed(dfg)
+            critical_path_analyzer = CriticalPathAnalyzer(dfg)
+            critical_path, critical_path_latency, split_points = critical_path_analyzer.analyze()
+        print("\ndfg after split")
+        print(dfg)
         return longest_latency, None
 
     def _list_schedule(self, dfg, nodes):
@@ -544,11 +615,13 @@ class BlockBoundedListScheduler(SchedulerImpl):
                 break
         return latency
 
-    def _list_schedule_with_block_bound(self, dfg, nodes, block, longest_latency):
+    def _list_schedule_with_block_bound(self, dfg, nodes, block, longest_latency, excepts = []):
         while True:
             next_candidates = set()
             for n in sorted(nodes, key=lambda n: (n.priority, n.stm_index)):
                 if n.tag.block is not block:
+                    continue
+                if n in excepts:
                     continue
                 scheduled_time = self._node_sched_with_block_bound(dfg, n, block)
                 _, _, latency = self.node_latency_map[n]
@@ -735,8 +808,14 @@ class ResourceRestrictedBlockBoundedListScheduler(SchedulerImpl):
             for task in results:
                 if task[0] == "calc_init":
                     continue
+                res = task[1]
+                resource_name = re.match(r"^(.*?)(\d+)$", res)
+                if resource_name:
+                    res_num = int(resource_name.group(2))
+                    resource_name = resource_name.group(1)
+                else:
+                    continue
                 n = tasks[task[0]]
-                res_num = n.instance_num
                 if isinstance(n.tag.src.left, TEMP):
                     left_width = n.tag.src.left.sym.typ.get_width()
                 else:
@@ -1061,8 +1140,9 @@ class ResourceRestrictedBlockBoundedListScheduler(SchedulerImpl):
             # elif op in ("And", "Or", "Eq", "NotEq", "Lt", "LtE", "Gt", "GtE"):
             #     calc_node = RELOP(op, left, right)
             calc_result_name = str(op) + "_" + str(node.instance_num) + "_result"
-            calc_result_sym = Symbol(calc_result_name, tags=default_tags, scope=scope, typ=int_type)
-            calc_result_sym.add_tag("alias")
+            dst_type = node.tag.dst.sym.typ
+            calc_result_sym = Symbol(calc_result_name, tags=default_tags, scope=scope, typ=dst_type)
+            # calc_result_sym.add_tag("alias")
             calc_node = TEMP(calc_result_sym, Ctx.LOAD)
             # node.tag.dst.sym.add_tag("alias")
             calc_node = MOVE(node.tag.dst, calc_node, loc=Loc(filename, lineno))
@@ -1104,8 +1184,8 @@ class ResourceRestrictedBlockBoundedListScheduler(SchedulerImpl):
             init_left.end = begin + 1
             init_right.begin = begin
             init_right.end = begin + 1
-            calc_node.begin = begin
-            calc_node.end = begin + 1
+            calc_node.begin = begin + 1
+            calc_node.end = begin + 2
             init_left.priority = priority
             init_right.priority = priority
             calc_node.priority = priority + 1
@@ -1738,3 +1818,72 @@ class ConflictGraphBuilder(object):
                     for adj in adjs:
                         graph.add_edge(mn, adj)
                     cn0 = mn
+
+
+ADDITION_TIME = 1
+MULTIPLICATION_TIME = 3
+DIVISION_TIME = 10
+class CriticalPathAnalyzer(object):
+    def __init__(self, dfg):
+        self.dfg = dfg
+        self.critical_path = []
+        self.critical_path_latency = 0
+        self.latency_maps = []
+    def analyze(self):
+        paths = []
+        for path in self.dfg.trace_all_paths(lambda n: self.dfg.succs_typ_without_back(n, "DefUse")):
+            latency_map = defaultdict(int)
+            paths.append(path)
+            for node in path:
+                start_time = node.begin
+                if node.tag.is_a(MOVE) and node.tag.src.is_a([BINOP, UNOP, RELOP]):
+                    op = node.tag.src.op
+                    if op in ("Add", "Sub", "BitOr", "BitAnd", "BitXor"):
+                        latency = ADDITION_TIME
+                    elif op in ("Mult"):
+                        latency = MULTIPLICATION_TIME
+                    elif op in ("Div", "FloorDiv", "Mod"):
+                        latency = DIVISION_TIME
+                    elif op in ("And", "Or", "Eq", "NotEq", "Lt", "LtE", "Gt", "GtE"):
+                        latency = ADDITION_TIME
+                    else:
+                        latency = 0
+                else:
+                    latency = 0
+                if start_time not in latency_map.keys():
+                    latency_map[start_time] = latency
+                else:
+                    latency_map[start_time] += latency
+            self.latency_maps.append(latency_map)
+        critical_path_index = 0
+        critical_path_key = 0
+        for i, latency_map in enumerate(self.latency_maps):
+            max_latency = max(latency_map.values())
+            max_key = max(latency_map, key=latency_map.get)
+            if max_latency > self.critical_path_latency:
+                critical_path_index = i
+                self.critical_path_latency = max_latency
+                critical_path_key = max_key
+        self.critical_path = [node for node in paths[critical_path_index] if node.begin == critical_path_key]
+        split_points = []
+        total_latency = 0
+        for i, node in enumerate(self.critical_path):
+            if node.tag.is_a(MOVE) and node.tag.src.is_a([BINOP, UNOP, RELOP]):
+                op = node.tag.src.op
+                if op in ("Add", "Sub", "BitOr", "BitAnd", "BitXor"):
+                    latency = ADDITION_TIME
+                elif op in ("Mult"):
+                    latency = MULTIPLICATION_TIME
+                elif op in ("Div", "FloorDiv", "Mod"):
+                    latency = DIVISION_TIME
+                elif op in ("And", "Or", "Eq", "NotEq", "Lt", "LtE", "Gt", "GtE"):
+                    latency = ADDITION_TIME
+                else:
+                    latency = 0
+            else:
+                latency = 0
+            total_latency += latency
+            if total_latency >= MAX_LATENCY:
+                split_points.append(i - 1)
+                total_latency = latency
+        return self.critical_path, self.critical_path_latency, split_points

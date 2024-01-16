@@ -13,6 +13,7 @@ from .stg_pipeline import PipelineState, PipelineStage
 from .verilog_common import pyop2verilogop, is_verilog_keyword
 from logging import getLogger
 import re
+import inspect
 
 logger = getLogger(__name__)
 
@@ -29,6 +30,7 @@ class VerilogCodeGen(AHDLVisitor):
         self.result_vars = hdlmodule.scope.result_vars
         self.result_vars_states = {}
         self.resource_restrict = hdlmodule.scope.resource_restrict
+        self.calculations = []
 
     def result(self):
         return "".join(self.codes)
@@ -96,16 +98,16 @@ class VerilogCodeGen(AHDLVisitor):
 
         self.rst_stms = fsm.reset_stms
         for stm in sorted(fsm.reset_stms, key=lambda s: str(s)):
-            if stm.dst.is_a(AHDL_VAR) and stm.dst.sig.is_net():
-                continue
-            if stm.dst.is_a(AHDL_VAR):
-                name = stm.dst.sig.name
-            elif stm.dst.is_a(AHDL_SYMBOL):
-                name = stm.dst.name
-            else:
-                name = None
-            if name in self.result_vars:
-                continue
+            # if stm.dst.is_a(AHDL_VAR) and stm.dst.sig.is_net():
+            #     continue
+            # if stm.dst.is_a(AHDL_VAR):
+            #     name = stm.dst.sig.name
+            # elif stm.dst.is_a(AHDL_SYMBOL):
+            #     name = stm.dst.name
+            # else:
+            #     name = None
+            # if name in self.result_vars:
+            #     continue
             self.visit(stm)
         if not fsm.stgs:
             self.set_indent(-2)
@@ -199,13 +201,13 @@ class VerilogCodeGen(AHDLVisitor):
 
     def _generate_signal(self, sig):
         name = self._safe_name(sig)
-        if name.startswith("Mult_") and name.endswith("_result"):
-            width = sig.width * 2
+        # if name.startswith("Mult_") and name.endswith("_result"):
+        #     width = sig.width * 2
+        # else:
+        if name in self.bit_dict:
+            width = self.bit_dict[name]
         else:
-            if name in self.bit_dict:
-                width = self.bit_dict[name]
-            else:
-                width = sig.width
+            width = sig.width
         if width == 1:
             return name
         else:
@@ -258,6 +260,34 @@ class VerilogCodeGen(AHDLVisitor):
                 for decl in sorted(decls, key=lambda d: str(d)):
                     self.visit(decl)
         self._generate_res_use()
+        # self._generate_binding()
+
+    def _generate_binding(self):
+        if not self.calculations:
+            return
+        self.emit("//calculation")
+        # sensitive = []
+        # for name, res in sorted(self.res_dict.items()):
+        #     if name in ("Add", "Sub", "Mult", "Div", "FloorDiv", "Mod", "BitAnd", "BitOr", "BitXor", "And", "Or", "Xor", "Eq", "NotEq", "Gt", "GtE", "Lt", "LtE"):
+        #         for i in res:
+        #             # sensitive.append(f"{name}_{i}_left")
+        #             # sensitive.append(f"{name}_{i}_right")
+        #             sensitive.append(f"{name}_{i}_result")
+        #     elif name == "Mult":
+        #         for i in res:
+        #             # sensitive.append(f"{name}_{i}_left")
+        #             # sensitive.append(f"{name}_{i}_right")
+        #             sensitive.append(f"{name}_{i}_result")
+        # sensitive_str = " or ".join(sensitive)
+        sensitive_str = "negedge clk"
+        self.emit(f"always @({sensitive_str}) begin")
+        # self.emit(f"always @(*) begin")
+        self.set_indent(2)
+        for codes in self.calculations:
+            for code in codes:
+                self.emit(code)
+        self.set_indent(-2)
+        self.emit("end")
 
     def _generate_res_sig(self):
         if not self.res_dict:
@@ -494,16 +524,16 @@ class VerilogCodeGen(AHDLVisitor):
             self.emit("if (!" + ready_name + ") begin")
             self.set_indent(2)
             for stm in sorted(self.rst_stms, key=lambda s: str(s)):
-                if stm.dst.is_a(AHDL_VAR) and stm.dst.sig.is_net():
-                    continue
-                if stm.dst.is_a(AHDL_VAR):
-                    name = stm.dst.sig.name
-                elif stm.dst.is_a(AHDL_SYMBOL):
-                    name = stm.dst.name
-                else:
-                    name = None
-                if name in self.result_vars:
-                    continue
+                # if stm.dst.is_a(AHDL_VAR) and stm.dst.sig.is_net():
+                #     continue
+                # if stm.dst.is_a(AHDL_VAR):
+                #     name = stm.dst.sig.name
+                # elif stm.dst.is_a(AHDL_SYMBOL):
+                #     name = stm.dst.name
+                # else:
+                #     name = None
+                # if name in self.result_vars:
+                #     continue
                 self.visit(stm)
             self.set_indent(-2)
             self.emit("end")
@@ -530,7 +560,11 @@ class VerilogCodeGen(AHDLVisitor):
         elif isinstance(ahdl.value, str):
             s = repr(ahdl.value)
             return '"' + s[1:-1] + '"'
-        return str(ahdl.value)
+        value_str = str(ahdl.value)
+        if ahdl.value < 0:
+            value_str = value_str[1:]
+            return "-" + str(env.config.default_int_width) + "'sd" + value_str
+        return str(env.config.default_int_width) + "'sd" + value_str
 
     def _safe_name(self, sig):
         if sig.is_reserved():
@@ -603,19 +637,22 @@ class VerilogCodeGen(AHDLVisitor):
         self.emit(ahdl.code)
 
     def visit_AHDL_MOVE(self, ahdl):
-        if ahdl.dst.is_a(AHDL_VAR):
-            name = ahdl.dst.sig.name
-        elif ahdl.dst.is_a(AHDL_SYMBOL):
-            name = ahdl.dst.name
-        else:
-            name = None
-        if name is not None and name in self.result_vars:
-            if name in self.result_vars_states:
-                self.result_vars_states[name].append(self.current_state.name)
-            else:
-                self.result_vars_states[name] = [self.current_state.name]
-            self.hdlmodule.add_static_assignment(AHDL_ASSIGN(ahdl.dst, ahdl.src))
-            return
+        # if ahdl.dst.is_a(AHDL_VAR):
+        #     name = ahdl.dst.sig.name
+        # elif ahdl.dst.is_a(AHDL_SYMBOL):
+        #     name = ahdl.dst.name
+        # else:
+        #     name = None
+        # if name is not None and name == self.current_state_sig.name:
+        #     self.emit(f"{self.current_state_sig.name} <= {self.visit(ahdl.src)};")
+        #     return
+        # if name is not None and name in self.result_vars:
+        #     if name in self.result_vars_states:
+        #         self.result_vars_states[name].append(self.current_state.name)
+        #     else:
+        #         self.result_vars_states[name] = [self.current_state.name]
+        #     self.hdlmodule.add_static_assignment(AHDL_ASSIGN(ahdl.dst, ahdl.src))
+        #     return
         if (
             ahdl.dst.is_a(AHDL_VAR)
             and ahdl.dst.sig.is_net()
@@ -671,6 +708,8 @@ class VerilogCodeGen(AHDLVisitor):
         cond = self.visit(ahdl.cond)
         lexp = self.visit(ahdl.lexp)
         rexp = self.visit(ahdl.rexp)
+        if rexp == "'bz":
+            rexp = "0"
         return f"{cond} ? {lexp} : {rexp}"
 
     def visit_AHDL_FUNCALL(self, ahdl):
@@ -718,8 +757,8 @@ class VerilogCodeGen(AHDLVisitor):
         nettype = "reg" if ahdl.sig.is_reg() else "wire"
         if (ahdl.sig.name.startswith("Add_") or ahdl.sig.name.startswith("Sub_") or ahdl.sig.name.startswith("Mult_") or ahdl.sig.name.startswith("Div_") or ahdl.sig.name.startswith("FloorDiv_") or ahdl.sig.name.startswith("Mod_") or ahdl.sig.name.startswith("BitAnd_") or ahdl.sig.name.startswith("BitOr_") or ahdl.sig.name.startswith("BitXor_") or ahdl.sig.name.startswith("And_") or ahdl.sig.name.startswith("Or_") or ahdl.sig.name.startswith("Xor_") or ahdl.sig.name.startswith("Eq_") or ahdl.sig.name.startswith("NotEq_") or ahdl.sig.name.startswith("Gt_") or ahdl.sig.name.startswith("GtE_") or ahdl.sig.name.startswith("Lt_") or ahdl.sig.name.startswith("LtE_")) and ahdl.sig.name.endswith("_result"):
             nettype = "wire"
-        if ahdl.sig.name in self.result_vars:
-            nettype = "wire"
+        # if ahdl.sig.name in self.result_vars:
+        #     nettype = "wire"
         self.emit(f"{nettype} {self._generate_signal(ahdl.sig)};")
 
     def visit_AHDL_SIGNAL_ARRAY_DECL(self, ahdl):
@@ -744,11 +783,24 @@ class VerilogCodeGen(AHDLVisitor):
             name = None
         if name is not None and name in self.result_vars:
             state_names = self.result_vars_states[ahdl.dst.sig.name]
-            emit_stm = f"assign {dst} = state_before == 0 ? 0"
+            # emit_stm = f"assign {dst} = state_before == 0 ? 0"
+            # for state_name in state_names:
+            #     emit_stm += f" : (state_before == {state_name} && clk == 0) ? {src}"
+            # emit_stm += f" : {dst};"
+            # self.emit(emit_stm)
+            init_stms = ["case (state_before)"]
+            init_stms.append("  0: begin")
+            init_stms.append(f"    {dst} = 0;")
+            init_stms.append("  end")
             for state_name in state_names:
-                emit_stm += f" : (state_before == {state_name}) ? {src}"
-            emit_stm += f" : {dst};"
-            self.emit(emit_stm)
+                init_stms.append(f"  {state_name}: begin")
+                init_stms.append(f"    {dst} = {src};")
+                init_stms.append("  end")
+            init_stms.append("  default: begin")
+            init_stms.append(f"    {dst} = {dst};")
+            init_stms.append("  end")
+            init_stms.append("endcase")
+            self.calculations.append(init_stms)
         else:
             self.emit(f"assign {dst} = {src};")
 

@@ -232,6 +232,22 @@ class UseDefDetector(IRVisitor):
     def visit_CONST(self, ir):
         self.table.add_const_use(ir, self.current_stm)
 
+    def visit_BINOP(self, ir):
+        self.visit(ir.left)
+        self.visit(ir.right)
+
+    def visit_UNOP(self, ir):
+        self.visit(ir.exp)
+
+    def visit_RELOP(self, ir):
+        self.visit(ir.left)
+        self.visit(ir.right)
+
+    def visit_CONDOP(self, ir):
+        self.visit(ir.cond)
+        self.visit(ir.left)
+        self.visit(ir.right)
+
     def visit_TEMP(self, ir):
         if ir.ctx & Ctx.LOAD:
             self.table.add_var_use(ir, self.current_stm)
